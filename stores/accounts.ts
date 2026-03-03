@@ -1,4 +1,4 @@
-import type { AccountStoreState } from "@algorandfoundation/accounts-store";
+import type { AccountStoreState } from "@/extensions/accounts";
 import {Store} from "@tanstack/react-store";
 
 export const accountsStore = new Store<AccountStoreState>({
