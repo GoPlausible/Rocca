@@ -107,15 +107,39 @@ export const WithIdentitiesKeystore: Extension<IdentitiesKeystoreExtension> = (
 		keyStore.subscribe((state) => {
 			const newKeys = (state as unknown as KeyStoreState).keys;
 
-			// Find the difference between keys and newKeys
+			// Find added keys
 			const addedKeys = newKeys.filter(
 				(newKey) => !keys.some((existingKey) => existingKey.id === newKey.id),
 			);
 
-			if (addedKeys.length === 0) return;
+			// Find removed keys
+			const removedKeys = keys.filter(
+				(existingKey) => !newKeys.some((newKey) => newKey.id === existingKey.id),
+			);
 
+			if (addedKeys.length === 0 && removedKeys.length === 0) return;
+
+			// Update the local cache of keys
 			addedKeys.forEach((k) => {
 				keys.push(k);
+			});
+			removedKeys.forEach((k) => {
+				const index = keys.findIndex((existingKey) => existingKey.id === k.id);
+				if (index !== -1) {
+					keys.splice(index, 1);
+				}
+			});
+
+			// Remove identities for removed keys
+			removedKeys.forEach((k) => {
+				if (k.type === "hd-derived-ed25519" && k.publicKey) {
+					const address = getDidKey(k.publicKey);
+					const identity = identityStore.state.identities.find((i) => i.address === address);
+					if (identity && identity.metadata?.keyId === k.id) {
+						console.log(`Removing identity for key ${k.id}-${k.type}...`);
+						provider.identity.store.removeIdentity(address);
+					}
+				}
 			});
 
 			// Process only the newly added keys
