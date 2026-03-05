@@ -19,7 +19,7 @@ const config = Constants.expoConfig?.extra?.provider || {
 };
 export default function LandingScreen() {
   const router = useRouter();
-  const {key, identities, accounts} = useProvider()
+  const {key, identity, account, identities, accounts} = useProvider()
 
   const activeIdentity = identities[0];
   const activeAccount = accounts[0];
@@ -149,6 +149,8 @@ export default function LandingScreen() {
           onPress={async () =>
               {
                 await key.store.clear()
+                await account.store.clear()
+                await identity.store.clear()
                 router.replace('/onboarding')
               }}
         >
