@@ -57,7 +57,17 @@
         "showRewards": true,
         "showFeeDelegation": true,
         "showIdentityManagement": true
+      },
+      "router": {},
+      "eas": {
+        "projectId": "f1e6cb1b-642d-49fa-b276-53b4403f62d6"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f1e6cb1b-642d-49fa-b276-53b4403f62d6"
     }
   }
 }
