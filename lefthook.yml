@@ -1,0 +1,7 @@
+# lefthook.yml
+
+pre-commit:
+  parallel: true
+  jobs:
+    - run: npm run lint
+    - run: npm run test
