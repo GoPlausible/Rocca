@@ -22,9 +22,10 @@ export function addPasskey({
 	passkey: Passkey;
 }): Passkey {
 	store.setState((state) => {
+		const filtered = state.passkeys.filter((p) => p.id !== passkey.id);
 		return {
 			...state,
-			passkeys: [passkey, ...state.passkeys],
+			passkeys: [passkey, ...filtered],
 		};
 	});
 	return passkey;

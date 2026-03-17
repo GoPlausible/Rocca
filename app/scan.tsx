@@ -47,18 +47,51 @@ export default function ScanScreen() {
   const handleBarcodeScanned = async (scanningResult: { type: string; data: string }) => {
     if(scanned) return;
     setScanned(true);
-    const { type, data } = scanningResult;
-    if(isValidURL(data)) {
-      if(accounts.length === 0) return
+    let { type, data } = scanningResult;
+    
+    // Normalize the data into a valid URL
+    let processedData = data;
+    if (!processedData.includes('://')) {
+      processedData = 'https://' + processedData;
+    } else if (processedData.startsWith('liquid://')) {
+      processedData = processedData.replace('liquid://', 'https://');
+    }
 
-      const url = new URL(data);
-      console.log("URL detected:", data);
-      console.log("URL hostname:", url.hostname);
-      if(!url.searchParams.get("requestId")){
-        throw new Error("Invalid URL")
+    if(isValidURL(processedData)) {
+      if(accounts.length === 0) {
+        Alert.alert("Error", "No accounts found. Please create or import an account first.");
+        setScanned(false);
+        return;
       }
-      const requestId = url.searchParams.get("requestId")!;
-      const origin = `https://${url.hostname}`
+
+      const url = new URL(processedData);
+      console.log("URL detected:", processedData);
+      console.log("URL host:", url.host);
+      
+      // Extract requestId from query parameter or pathname
+      let requestId = url.searchParams.get("requestId");
+      let pathname = url.pathname;
+
+      if (!requestId && pathname && pathname !== '/') {
+        // Handle liquid://<host>/<requestId> case
+        // If it's a single segment, it might be the requestId
+        const segments = pathname.split('/').filter(Boolean);
+        if (segments.length === 1) {
+          requestId = segments[0];
+          pathname = '/'; // Clear it from origin
+        }
+      }
+
+      if(!requestId){
+        Alert.alert("Error", "Invalid QR code: missing requestId");
+        setScanned(false);
+        return;
+      }
+
+      let origin = `${url.protocol}//${url.host}`;
+      if (pathname && pathname !== '/') {
+        origin += pathname;
+      }
 
       router.replace({
         pathname: '/chat',

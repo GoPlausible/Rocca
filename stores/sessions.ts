@@ -53,8 +53,8 @@ sessionsStore.subscribe(() => {
 export function addSession(session: Omit<Session, 'timestamp' | 'lastActivity'>) {
   const now = Date.now();
   sessionsStore.setState((state) => {
-    // Avoid duplicate sessions with the same id (requestId)
-    const filtered = state.sessions.filter(s => s.id !== session.id);
+    // Avoid duplicate sessions with the same id (requestId) and origin
+    const filtered = state.sessions.filter(s => !(s.id === session.id && s.origin === session.origin));
     return {
       ...state,
       sessions: [
@@ -69,28 +69,28 @@ export function addSession(session: Omit<Session, 'timestamp' | 'lastActivity'>)
   });
 }
 
-export function updateSessionStatus(id: string, status: Session['status']) {
+export function updateSessionStatus(id: string, origin: string, status: Session['status']) {
   sessionsStore.setState((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, status, lastActivity: Date.now() } : s
+      s.id === id && s.origin === origin ? { ...s, status, lastActivity: Date.now() } : s
     ),
   }));
 }
 
-export function updateSessionActivity(id: string) {
+export function updateSessionActivity(id: string, origin: string) {
   sessionsStore.setState((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, lastActivity: Date.now() } : s
+      s.id === id && s.origin === origin ? { ...s, lastActivity: Date.now() } : s
     ),
   }));
 }
 
-export function removeSession(id: string) {
+export function removeSession(id: string, origin: string) {
   sessionsStore.setState((state) => ({
     ...state,
-    sessions: state.sessions.filter((s) => s.id !== id),
+    sessions: state.sessions.filter((s) => !(s.id === id && s.origin === origin)),
   }));
 }
 

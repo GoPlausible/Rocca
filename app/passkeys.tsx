@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  StyleSheet, Text, View, ScrollView, TouchableOpacity
+  StyleSheet, Text, View, ScrollView, TouchableOpacity, Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
@@ -9,7 +9,29 @@ import { useProvider } from '@/hooks/useProvider';
 
 export default function PasskeysScreen() {
   const router = useRouter();
-  const { passkeys } = useProvider();
+  const { passkeys, passkey: passkeyApi } = useProvider();
+
+  const handleDelete = (id: string, name: string) => {
+    Alert.alert(
+      "Delete Passkey",
+      `Are you sure you want to delete "${name}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              await passkeyApi.store.removePasskey(id);
+            } catch (error) {
+              console.error('Failed to remove passkey:', error);
+              Alert.alert('Error', 'Failed to remove passkey');
+            }
+          } 
+        }
+      ]
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -32,11 +54,25 @@ export default function PasskeysScreen() {
                   <MaterialIcons name="fingerprint" size={24} color="#10B981" />
                 </View>
                 <View style={styles.details}>
-                  <Text style={styles.credentialId} numberOfLines={1} ellipsizeMode="middle">
-                    {passkey.credentialId}
+                  <Text style={styles.passkeyName} numberOfLines={1}>
+                    {passkey.name}
                   </Text>
-                  <Text style={styles.date}>Created: {new Date(passkey.createdAt).toLocaleDateString()}</Text>
+                  <Text style={styles.credentialId} numberOfLines={1} ellipsizeMode="middle">
+                    ID: {passkey.id}
+                  </Text>
+                  {passkey.metadata?.origin && (
+                    <Text style={styles.origin} numberOfLines={1}>
+                      Origin: {passkey.metadata.origin}
+                    </Text>
+                  )}
+                  <Text style={styles.date}>Created: {passkey.createdAt ? new Date(passkey.createdAt).toLocaleDateString() : 'N/A'}</Text>
                 </View>
+                <TouchableOpacity 
+                  onPress={() => handleDelete(passkey.id, passkey.name)}
+                  style={styles.deleteButton}
+                >
+                  <MaterialIcons name="delete-outline" size={24} color="#EF4444" />
+                </TouchableOpacity>
               </View>
             ))}
             {passkeys.length === 0 && (
@@ -91,15 +127,29 @@ const styles = StyleSheet.create({
   details: {
     flex: 1,
   },
-  credentialId: {
+  passkeyName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 4,
+    marginBottom: 2,
+  },
+  credentialId: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 2,
+  },
+  origin: {
+    fontSize: 13,
+    color: '#3B82F6',
+    marginBottom: 2,
   },
   date: {
-    fontSize: 14,
-    color: '#64748B',
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  deleteButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   emptyText: {
     textAlign: 'center',

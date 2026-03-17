@@ -37,6 +37,11 @@ export interface Passkey {
 	algorithm: string;
 
 	/**
+	 * The timestamp when the passkey was created.
+	 */
+	createdAt?: number;
+
+	/**
 	 * The metadata associated with the passkey.
 	 */
 	metadata?: Record<string, any>;

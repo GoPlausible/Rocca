@@ -53,6 +53,7 @@ export const WithPasskeysKeystore: Extension<PasskeysKeystoreExtension> = (
 			name: key.metadata.origin || "Unnamed Passkey",
 			publicKey: key.publicKey,
 			algorithm: key.algorithm || "ES256",
+			createdAt: Date.now(),
 			metadata: {
 				...key.metadata,
 				keyId: key.id,

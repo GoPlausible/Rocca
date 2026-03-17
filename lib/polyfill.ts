@@ -21,6 +21,14 @@ function parseAuthenticatorData(authData: ArrayBuffer): { rpIdHash: Uint8Array, 
   return { rpIdHash, flags, counter };
 }
 
+function formatOrigin(rpId?: string): string {
+  if (!rpId) return "";
+  if (rpId.startsWith('http://') || rpId.startsWith('https://')) {
+    return rpId;
+  }
+  return `https://${rpId}`;
+}
+
 function toArrayBuffer(base64url: string): ArrayBuffer {
   const buf = fromBase64Url(base64url).buffer;
   if (typeof SharedArrayBuffer !== 'undefined' && buf instanceof SharedArrayBuffer) {
@@ -77,6 +85,29 @@ export function globalPolyfill() {
 }
 
 export function setupNavigatorPolyfill(provider: ReactNativeProvider) {
+  // @ts-ignore
+  if (!global.AuthenticatorAssertionResponse) {
+    // @ts-ignore
+    global.AuthenticatorAssertionResponse = function () { };
+    // @ts-ignore
+    global.AuthenticatorAssertionResponse.prototype.authenticatorData = null;
+    // @ts-ignore
+    global.AuthenticatorAssertionResponse.prototype.signature = null;
+    // @ts-ignore
+    global.AuthenticatorAssertionResponse.prototype.userHandle = null;
+    // @ts-ignore
+    global.AuthenticatorAssertionResponse.prototype.clientExtensionResults = null;
+  }
+  // @ts-ignore
+  if (!global.AuthenticatorAttestationResponse) {
+    // @ts-ignore
+    global.AuthenticatorAttestationResponse = function () { };
+    // @ts-ignore
+    global.AuthenticatorAttestationResponse.prototype.attestationObject = null;
+    // @ts-ignore
+    global.AuthenticatorAttestationResponse.prototype.clientExtensionResults = null;
+  }
+
   // We are monkey-patching the globals for consistency
   if (!global.navigator) {
     // @ts-expect-error, we are overriding this on purpose
@@ -111,8 +142,9 @@ export function setupNavigatorPolyfill(provider: ReactNativeProvider) {
             name: "Passkey",
             publicKey: new Uint8Array(0),
             id: result.id,
+            createdAt: Date.now(),
             metadata: {
-              origin: parsedClientData.origin || (request as any).rpId || "",
+              origin: formatOrigin(request.rpId || (parsedClientData.origin?.startsWith('android:apk-key-hash') ? "" : parsedClientData.origin)),
               userHandle: result.response.userHandle ? toUint8Array(toArrayBuffer(result.response.userHandle)) : null,
               challenge: parsedClientData.challenge,
               rpIdHash: toBase64URL(parsedAuthData.rpIdHash),
@@ -127,11 +159,13 @@ export function setupNavigatorPolyfill(provider: ReactNativeProvider) {
           response: {
             clientDataJSON,
             authenticatorData: authData,
-            signature: result.response.signature,
+            signature: toArrayBuffer(result.response.signature),
             userHandle: result.response.userHandle ? toArrayBuffer(result.response.userHandle) : null,
+            clientExtensionResults: result.clientExtensionResults || {},
           },
           authenticatorAttachment: result.authenticatorAttachment,
           type: result.type,
+          getClientExtensionResults: () => result.clientExtensionResults || {},
         };
       } catch (error) {
         throw error;
@@ -174,8 +208,9 @@ export function setupNavigatorPolyfill(provider: ReactNativeProvider) {
             name: publicKey.length > 0 ? `Passkey ${result.id.slice(0, 8)}` : "Passkey",
             publicKey,
             id: result.id,
+            createdAt: Date.now(),
             metadata: {
-              origin: parsedClientData.origin || request.rp.id || "",
+              origin: formatOrigin(request.rp.id || (parsedClientData.origin?.startsWith('android:apk-key-hash') ? "" : parsedClientData.origin)),
               userHandle: request.user.id ? toUint8Array(toArrayBuffer(request.user.id as string)) : null,
               challenge: parsedClientData.challenge,
             },
@@ -192,9 +227,11 @@ export function setupNavigatorPolyfill(provider: ReactNativeProvider) {
             getPublicKeyAlgorithm: () => (result.response as any).publicKeyAlgorithm || -7,
             getPublicKey: () => result.response.publicKey ? toArrayBuffer(result.response.publicKey) : null,
             getAuthenticatorData: () => result.response.authenticatorData ? toArrayBuffer(result.response.authenticatorData) : null,
+            clientExtensionResults: result.clientExtensionResults || {},
           },
           authenticatorAttachment: result.authenticatorAttachment,
           type: result.type,
+          getClientExtensionResults: () => result.clientExtensionResults || {},
         };
       } catch (error) {
         throw error;
