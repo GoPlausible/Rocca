@@ -1,3 +1,4 @@
+import { Alert, Platform } from "react-native";
 import { Stack } from "expo-router";
 import { install } from 'react-native-quick-crypto'
 import { keyStore } from '@/stores/keystore'
@@ -12,6 +13,7 @@ import { passkeysStore } from '@/stores/passkeys'
 import {registerGlobals} from "react-native-webrtc";
 import { globalPolyfill, setupNavigatorPolyfill } from "@/lib/polyfill";
 import ReactNativePasskeyAutofill from "@algorandfoundation/react-native-passkey-autofill";
+import { CredentialProviderService } from "@/lib/credentialProvider";
 
 globalPolyfill()
 registerGlobals()
@@ -82,6 +84,21 @@ async function bootstrap() {
     
     if (hdRootKey) {
       await ReactNativePasskeyAutofill.setHdRootKeyId(hdRootKey.id);
+    }
+
+    const isEnabled = await CredentialProviderService.isEnabledCredentialProviderService();
+    console.log('CredentialProviderService isEnabled:', isEnabled);
+    if (!isEnabled && Platform.OS === 'android') {
+      Alert.alert(
+        "Enable Autofill Service",
+        "To use passkeys, you need to enable the autofill service for this app in your Android settings.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: async () => {
+            await CredentialProviderService.showCredentialProviderSettings();
+          }}
+        ]
+      );
     }
 
     await ReactNativePasskeyAutofill.configureIntentActions(

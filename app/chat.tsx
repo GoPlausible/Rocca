@@ -14,17 +14,25 @@ export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ origin: string; requestId: string }>();
   const [inputText, setInputText] = useState('');
-  const { messages } = useStore(messagesStore, (state) => state);
-  const flatListRef = useRef<FlatList>(null);
-
   const {
     isConnected,
     isLoading,
     isError,
     send,
     lastHeartbeat,
-    reset
+    reset,
+    address
   } = useConnection(params.origin || '', params.requestId || '');
+
+  const { messages } = useStore(messagesStore, (state) => ({
+    messages: state.messages.filter(m => 
+      m.origin === params.origin && 
+      m.requestId === params.requestId && 
+      (address ? m.address === address : true)
+    )
+  }));
+
+  const flatListRef = useRef<FlatList>(null);
 
   const [isHeartbeatVisible, setIsHeartbeatVisible] = useState(false);
 
@@ -97,7 +105,10 @@ export default function ChatScreen() {
             {isHeartbeatVisible && (
               <MaterialIcons name="favorite" size={16} color="#10B981" style={{ marginRight: 10 }} />
             )}
-            <TouchableOpacity onPress={() => clearMessages()} style={{ marginRight: 15 }}>
+            <TouchableOpacity 
+              onPress={() => address && clearMessages(address, params.origin || '', params.requestId || '')} 
+              style={{ marginRight: 15 }}
+            >
               <MaterialIcons name="delete-outline" size={24} color="#6B7280" />
             </TouchableOpacity>
             <TouchableOpacity onPress={handleDisconnect} style={{ marginRight: 15 }}>

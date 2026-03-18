@@ -17,6 +17,7 @@ import { sessionsStore, addSession, updateSessionStatus, updateSessionActivity, 
 
 interface UseConnectionResult {
   session: Session | undefined;
+  address: string | null;
   send: (text: string) => void;
   error: Error | null;
   isError: boolean;
@@ -31,6 +32,13 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   const { accounts, keys, key, passkeys, sessions } = useProvider();
   
   const [isConnected, setIsConnected] = useState(false);
+  const [address, setAddress] = useState<string | null>(null);
+  const addressRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    addressRef.current = address;
+  }, [address]);
+
   const [lastHeartbeat, setLastHeartbeat] = useState<number>(Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -38,6 +46,18 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const clientRef = useRef<SignalClient | null>(null);
   const lastUserActivityRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    if (accounts.length > 0 && keys.length > 0 && !address) {
+      let foundKey = keys.find((k) => k.id === accounts[0]?.metadata?.keyId);
+      if (!foundKey && keys.length > 0) {
+        foundKey = keys[0];
+      }
+      if (foundKey?.publicKey) {
+        setAddress(encodeAddress(foundKey.publicKey));
+      }
+    }
+  }, [accounts, keys, address]);
 
   const session = useStore(sessionsStore, (state) => 
     state.sessions.find(s => s.id === requestId && s.origin === origin)
@@ -55,13 +75,19 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   }, [requestId, origin]);
 
   const send = useCallback((text: string) => {
-    if (text.trim() && dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+    if (text.trim() && dataChannelRef.current && dataChannelRef.current.readyState === 'open' && address) {
       dataChannelRef.current.send(text.trim());
-      addMessage({ text: text.trim(), sender: 'me' });
+      addMessage({ 
+        text: text.trim(), 
+        sender: 'me',
+        address,
+        origin,
+        requestId
+      });
       updateSessionActivity(requestId, origin);
       lastUserActivityRef.current = Date.now();
     }
-  }, [requestId, origin]);
+  }, [requestId, origin, address]);
 
   useEffect(() => {
     let active = true;
@@ -159,7 +185,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
         console.log("Found key for attestation:", foundKey.id, foundKey.type);
 
-        const existingPasskey = passkeys.find(p => {
+        const relevantPasskeys = passkeys.filter(p => {
           const storedOrigin = p.metadata?.origin;
           if (!storedOrigin) return false;
           try {
@@ -171,10 +197,11 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           }
         });
 
-        if (existingPasskey) {
-          console.log("Found existing passkey for origin, using assertion:", existingPasskey.id);
+        if (relevantPasskeys.length > 0) {
+          const firstPasskey = relevantPasskeys[0];
+          console.log("Found existing passkeys for origin, using first one for options request:", firstPasskey.id);
           // TODO: move options upstream
-          const optionsResponse = await fetch(`${origin}/assertion/request/${existingPasskey.id}`, {
+          const optionsResponse = await fetch(`${origin}/assertion/request/${firstPasskey.id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -188,6 +215,23 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           
           const options = await optionsResponse.json();
           const decodedOptions = decodeAssertionRequestOptions(options);
+
+          // Ensure all relevant passkeys are allowed in the options to allow user selection in the intent
+          if (relevantPasskeys.length > 1) {
+            if (!decodedOptions.allowCredentials) {
+              decodedOptions.allowCredentials = [];
+            }
+            const existingIds = new Set(decodedOptions.allowCredentials.map(c => toBase64URL(new Uint8Array(c.id as ArrayBuffer))));
+            relevantPasskeys.forEach(p => {
+              if (!existingIds.has(p.id)) {
+                decodedOptions.allowCredentials!.push({
+                  id: fromBase64Url(p.id),
+                  type: 'public-key'
+                });
+              }
+            });
+          }
+
           const challenge = fromBase64Url(options.challenge);
           
           const liquidOptions = {
@@ -201,10 +245,57 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
           const credential = await navigator.credentials.get({
             publicKey: decodedOptions
-          }) as PublicKeyCredential;
+          }) as any;
 
           if (!credential) {
             throw new Error("Credential creation failed");
+          }
+
+          let selectedAddress: string | null = null;
+          if (credential.response?.userHandle) {
+            try {
+              selectedAddress = encodeAddress(new Uint8Array(credential.response.userHandle));
+            } catch (e) {
+              console.error("Failed to encode address from userHandle", e);
+            }
+          }
+
+          if (!selectedAddress) {
+            const matchedPasskey = relevantPasskeys.find(p => p.id === credential.id) || passkeys.find(p => p.id === credential.id);
+            const userHandle = matchedPasskey?.metadata?.userHandle;
+            if (userHandle) {
+              try {
+                // Handle different possible formats of userHandle in store (Uint8Array or serialized object)
+                const handleArray = userHandle instanceof Uint8Array ? userHandle : 
+                                    (typeof userHandle === 'object' ? new Uint8Array(Object.values(userHandle)) : null);
+                if (handleArray) {
+                  selectedAddress = encodeAddress(handleArray);
+                }
+              } catch (e) {
+                console.error("Failed to encode address from stored userHandle", e);
+              }
+            }
+          }
+
+          if (selectedAddress) {
+            console.log("Selected address from passkey:", selectedAddress);
+            setAddress(selectedAddress);
+            addressRef.current = selectedAddress;
+            liquidOptions.address = selectedAddress;
+
+            // Re-sign the challenge if the address changed to match the selected passkey
+            const selectedPublicKey = decodeAddress(selectedAddress);
+            const selectedKey = keys.find(k => 
+              k.publicKey && k.publicKey.length === selectedPublicKey.length && 
+              k.publicKey.every((v, i) => v === selectedPublicKey[i])
+            );
+
+            if (selectedKey) {
+              console.log("Found key for selected address, re-signing challenge");
+              liquidOptions.signature = toBase64URL(await key.store.sign(selectedKey.id, challenge));
+            } else {
+              console.warn("Could not find key for selected address", selectedAddress);
+            }
           }
 
           const encodedCredential = encodeCredential(credential);
@@ -285,6 +376,9 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             throw new Error("Credential creation failed");
           }
 
+          setAddress(liquidOptions.address);
+          addressRef.current = liquidOptions.address;
+
           const response = credential.response;
           const encodedCredential = {
             id: credential.id,
@@ -333,8 +427,14 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           updateSessionActivity(requestId, origin);
           lastUserActivityRef.current = Date.now();
           setLastHeartbeat(Date.now());
-          if (event.data && event.data.trim()) {
-            addMessage({ text: event.data.trim(), sender: 'peer' });
+          if (event.data && event.data.trim() && addressRef.current) {
+            addMessage({ 
+              text: event.data.trim(), 
+              sender: 'peer',
+              address: addressRef.current,
+              origin,
+              requestId
+            });
           }
         };
 
@@ -380,6 +480,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
   return {
     session,
+    address,
     send,
     error,
     isError: !!error,

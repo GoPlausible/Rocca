@@ -6,6 +6,9 @@ export interface Message {
   text: string;
   sender: 'me' | 'peer';
   timestamp: number;
+  address: string;
+  origin: string;
+  requestId: string;
 }
 
 export interface MessagesState {
@@ -56,9 +59,13 @@ export function addMessage(message: Omit<Message, 'id' | 'timestamp'>) {
   }));
 }
 
-export function clearMessages() {
+export function clearMessages(address: string, origin: string, requestId: string) {
   messagesStore.setState((state) => ({
     ...state,
-    messages: [],
+    messages: state.messages.filter(m => 
+      m.address !== address || 
+      m.origin !== origin || 
+      m.requestId !== requestId
+    ),
   }));
 }
