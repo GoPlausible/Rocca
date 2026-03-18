@@ -159,17 +159,6 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           updateSessionStatus(requestId, origin, 'active');
         }
         
-        let options: any = { autoConnect: true };
-        if (NativeModules.CookieModule) {
-          const cookie = await NativeModules.CookieModule.getCookie(origin);
-          if (cookie) {
-            options.extraHeaders = { Cookie: cookie };
-          }
-        }
-
-        const client = new SignalClient(origin, options);
-        clientRef.current = client;
-
         // Try to find the key associated with the first account, but fall back to the first available key
         let foundKey = keys.find((k) => k.id === accounts[0]?.metadata?.keyId);
         if (!foundKey && keys.length > 0) {
@@ -185,6 +174,10 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
         console.log("Found key for attestation:", foundKey.id, foundKey.type);
 
+        const sessionCheck = await fetch(`${origin}/auth/session`);
+        if (!active) return;
+        console.log("Initial session status:", sessionCheck.ok);
+        
         const relevantPasskeys = passkeys.filter(p => {
           const storedOrigin = p.metadata?.origin;
           if (!storedOrigin) return false;
@@ -246,6 +239,8 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           const credential = await navigator.credentials.get({
             publicKey: decodedOptions
           }) as any;
+
+          if (!active) return;
 
           if (!credential) {
             throw new Error("Credential creation failed");
@@ -315,9 +310,6 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           if (!submitResponse.ok) {
             throw new Error(`Failed to submit assertion response: ${submitResponse.status} ${submitResponse.statusText}`);
           }
-
-          //@ts-expect-error, allow writing this for now
-          client.authenticated = true
         } else {
           console.log("No existing passkey for origin, using attestation");
           
@@ -372,6 +364,8 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             publicKey: decodedPublicKey,
           }) as any;
 
+          if (!active) return;
+
           if (!credential) {
             throw new Error("Credential creation failed");
           }
@@ -401,15 +395,57 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             body: JSON.stringify(encodedCredential),
           });
 
+          if (!active) return;
+
           if (!submitResponse.ok) {
             throw new Error(`Failed to submit attestation response: ${submitResponse.status} ${submitResponse.statusText}`);
           }
+        }
+      
+        // Final validation of the session before connecting
+        const finalSessionCheck = await fetch(`${origin}/auth/session`);
 
-          //@ts-expect-error, allow writing this for now
-          client.authenticated = true
+        if (!active) return;
+
+        if (finalSessionCheck.ok) {
+          const sessionData = await finalSessionCheck.json();
+          
+          if (!active) return;
+
+          if (sessionData.address) {
+            setAddress(sessionData.address);
+            addressRef.current = sessionData.address;
+          }
+        } else {
+          console.log("Session validation failed (ignored for debugging)");
         }
 
+        let options: any = { autoConnect: true };
+        if (NativeModules.CookieModule) {
+          const cookie = await NativeModules.CookieModule.getCookie(origin);
+          
+          if (!active) return;
+
+          if (cookie) {
+            options.extraHeaders = { Cookie: cookie };
+          }
+        }
+
+        const client = new SignalClient(origin, options);
+        
+        if (!active) return;
+
+        clientRef.current = client;
+        //@ts-ignore
+        client.authenticated = true;
+
         const datachannel = await client.peer(requestId, "answer");
+        
+        if (!active) {
+          client.close();
+          return;
+        }
+
         dataChannelRef.current = datachannel;
 
         datachannel.onopen = () => {
@@ -473,10 +509,14 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       active = false;
       if (dataChannelRef.current) {
         dataChannelRef.current.close();
+        dataChannelRef.current = null;
       }
-      clientRef.current = null;
+      if (clientRef.current) {
+        clientRef.current.close();
+        clientRef.current = null;
+      }
     };
-  }, [origin, requestId, accounts, keys, key.store, passkeys, router]);
+  }, [origin, requestId, accounts, keys, key.store, router]);
 
   return {
     session,
