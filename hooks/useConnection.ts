@@ -439,7 +439,24 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         //@ts-ignore
         client.authenticated = true;
 
-        const datachannel = await client.peer(requestId, "answer");
+        const datachannel = await client.peer(requestId, "answer", {
+          iceServers: [
+            {
+              urls: [
+                "stun:geo.turn.algonode.xyz:80",
+                "stun:global.turn.nodely.io:443"
+              ]
+            },
+            {
+              urls: [
+                "turn:geo.turn.algonode.xyz:80?transport=tcp",
+                "turns:global.turn.nodely.io:443?transport=tcp"
+              ],
+              "username": "liquid-auth",
+              "credential": "sqmcP4MiTKMT4TGEDSk9jgHY"
+            },
+          ],
+        });
         
         if (!active) {
           client.close();
