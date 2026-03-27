@@ -54,7 +54,7 @@ const provider = new ReactNativeProvider(
     }
 )
 
-setupNavigatorPolyfill(provider)
+setupNavigatorPolyfill()
 
 async function bootstrap() {
   try {
