@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { NativeModules, Alert } from 'react-native';
+import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@tanstack/react-store';
 import {
@@ -9,7 +9,7 @@ import {
   decodeAddress,
   decodeAssertionRequestOptions,
   encodeCredential,
-} from '@algorandfoundation/liquid-client';
+} from '@goplausible/liquid-client';
 import { encodeAddress } from '@algorandfoundation/keystore';
 import type { KeyData, KeyStoreState } from '@algorandfoundation/keystore';
 import { fetchSecret, getMasterKey, commit } from '@algorandfoundation/react-native-keystore';
@@ -524,19 +524,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           console.log('Session validation failed (ignored for debugging)');
         }
 
-        let options: any = { autoConnect: true };
-        if (NativeModules.CookieModule) {
-          const cookie = await NativeModules.CookieModule.getCookie(origin);
-
-          if (!active) return;
-
-          if (cookie) {
-            options.extraHeaders = { Cookie: cookie };
-          }
-        }
-
-        const client = new SignalClient(origin, options);
-
+        const client = new SignalClient(origin);
         if (!active) return;
 
         clientRef.current = client;

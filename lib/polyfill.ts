@@ -1,5 +1,5 @@
 import { Passkey } from 'react-native-passkey';
-import { fromBase64Url, toBase64URL } from '@algorandfoundation/liquid-client';
+import { fromBase64Url, toBase64URL } from '@goplausible/liquid-client';
 
 function toUint8Array(buf: BufferSource): Uint8Array {
   if (buf instanceof Uint8Array) return buf;
