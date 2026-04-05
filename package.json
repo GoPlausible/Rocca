@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@algorandfoundation/keystore": "^1.0.0-canary.12",
-    "@goplausible/liquid-client": "*",
+    "@goplausible/liquid-client": "file:../liquid-auth-js",
     "@algorandfoundation/log-store": "^1.0.0-canary.2",
     "@algorandfoundation/react-native-keystore": "^1.0.0-canary.6",
     "@algorandfoundation/react-native-passkey-autofill": "^1.0.0-canary.10",
