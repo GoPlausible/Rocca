@@ -2,14 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@tanstack/react-store';
-import {
-  SignalClient,
-  toBase64URL,
-  fromBase64Url,
-  decodeAddress,
-  decodeAssertionRequestOptions,
-  encodeCredential,
-} from '@goplausible/liquid-client';
+import { SignalClient } from '@goplausible/liquid-client/signal';
+import { toBase64URL, fromBase64Url, decodeAddress } from '@goplausible/liquid-client/encoding';
+import { decodeOptions as decodeAssertionRequestOptions, encodeCredential } from '@goplausible/liquid-client/assertion/encoder';
 import { encodeAddress } from '@algorandfoundation/keystore';
 import type { KeyData, KeyStoreState } from '@algorandfoundation/keystore';
 import { fetchSecret, getMasterKey, commit } from '@algorandfoundation/react-native-keystore';
