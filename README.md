@@ -127,7 +127,7 @@ To further integrate with identity primitives, the following extensions are sugg
 > This project contains native dependencies (like `react-native-quick-crypto` and `@algorandfoundation/react-native-keystore`) that require running on a physical Android device. It may not function correctly on an emulator.
 >
 > Ensure you have your Android device connected and authorized via ADB, then run:
-
-```bash
-npm run android
-```
+>
+> ```bash
+> npm run android
+> ```
