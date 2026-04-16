@@ -2,7 +2,11 @@ import { createContext, type ReactNode } from 'react';
 import { Provider } from '@algorandfoundation/wallet-provider';
 
 import { WithKeyStore } from '@algorandfoundation/react-native-keystore';
-import { Account, AccountStoreExtension, WithAccountStore } from '@/extensions/accounts';
+import {
+  Account,
+  AccountStoreExtension,
+  WithAccountStore,
+} from '@algorandfoundation/accounts-store';
 import {
   Identity,
   IdentityStoreApi,
@@ -18,7 +22,10 @@ import {
 import type { KeyStoreAPI, Key } from '@algorandfoundation/keystore';
 import { type LogMessage, WithLogStore, type LogStoreApi } from '@algorandfoundation/log-store';
 import type { keyStoreHooks } from '@/stores/before-after';
-import { KeystoreAccount, WithAccountsKeystore } from '@/extensions/accounts-keystore';
+import {
+  KeystoreAccount,
+  WithAccountsKeystore,
+} from '@algorandfoundation/accounts-keystore-extension';
 import { WithIdentitiesKeystore } from '@/extensions/identities-keystore';
 import { WithPasskeysKeystore } from '@/extensions/passkeys-keystore';
 

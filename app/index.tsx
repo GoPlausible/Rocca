@@ -3,12 +3,9 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Redirect } from 'expo-router';
 import Constants from 'expo-constants';
 import { useStore } from '@tanstack/react-store';
-import { logsStore } from '@algorandfoundation/log-store';
+import { logsStore } from '@/stores/logs';
 import Logo from '@/components/Logo';
 import { useProvider } from '@/hooks/useProvider';
-import { getMasterKey } from '@/lib/crypto';
-import { resetGenericPassword } from 'react-native-keychain';
-
 export default function Index() {
   const { keys, status } = useProvider();
   const logs = useStore(logsStore, (state) => state.logs);
