@@ -614,6 +614,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         dataChannelRef.current = null;
       }
       if (clientRef.current) {
+        // Explicitly close the underlying peer connection BEFORE dropping
+        // the ref. SignalClient.close() only clears WS listeners; without
+        // also closing peerClient, the data-channel close may not
+        // propagate to the remote peer before GC, so the agent never sees
+        // onclose and never starts auto-relisten.
+        clientRef.current.peerClient?.close();
         clientRef.current.close();
         clientRef.current = null;
       }

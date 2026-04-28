@@ -1,4 +1,5 @@
 import { Alert, Platform } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEventListener } from 'expo';
 import { Stack } from 'expo-router';
 import { install } from 'react-native-quick-crypto';
@@ -154,10 +155,12 @@ export default function RootLayout() {
   });
 
   return (
-    <PreventScreenshotProvider>
-      <WalletProvider provider={provider}>
-        <Stack />
-      </WalletProvider>
-    </PreventScreenshotProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PreventScreenshotProvider>
+        <WalletProvider provider={provider}>
+          <Stack />
+        </WalletProvider>
+      </PreventScreenshotProvider>
+    </GestureHandlerRootView>
   );
 }
