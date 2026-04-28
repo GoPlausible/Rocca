@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import Logo from '../components/Logo';
 import { DidDocumentModal } from '@/dialogs/DidDocumentModal';
 import { useProvider } from '@/hooks/useProvider';
@@ -67,7 +68,18 @@ export default function LandingScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.balanceCard, { backgroundColor: primaryColor }]}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          disabled={!activeAccount}
+          onPress={() =>
+            activeAccount &&
+            router.push({
+              pathname: '/account-details',
+              params: { address: activeAccount.address },
+            })
+          }
+          style={[styles.balanceCard, { backgroundColor: primaryColor }]}
+        >
           <View style={styles.cardHeader}>
             <Text style={styles.balanceLabel}>Total Balance</Text>
             <MaterialIcons name="visibility" size={20} color="rgba(255, 255, 255, 0.6)" />
@@ -89,7 +101,7 @@ export default function LandingScreen() {
               <Text style={styles.actionButtonText}>Swap</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -105,7 +117,13 @@ export default function LandingScreen() {
                 {activeIdentity?.did || 'No identity found'}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => alert('DID copied!')}>
+            <TouchableOpacity
+              onPress={async () => {
+                if (!activeIdentity?.did) return;
+                await Clipboard.setStringAsync(activeIdentity.did);
+                alert('DID copied!');
+              }}
+            >
               <MaterialIcons name="content-copy" size={20} color="#64748B" />
             </TouchableOpacity>
           </View>

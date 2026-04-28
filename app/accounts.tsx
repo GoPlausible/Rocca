@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useProvider } from '@/hooks/useProvider';
 
 export default function AccountsScreen() {
@@ -34,7 +35,17 @@ export default function AccountsScreen() {
           <Text style={styles.sectionTitle}>Your Accounts</Text>
           <View style={styles.list}>
             {accounts.map((account, index) => (
-              <View key={index} style={styles.card}>
+              <TouchableOpacity
+                key={index}
+                activeOpacity={0.8}
+                onPress={() =>
+                  router.push({
+                    pathname: '/account-details',
+                    params: { address: account.address },
+                  })
+                }
+                style={styles.card}
+              >
                 <View style={styles.iconContainer}>
                   <MaterialIcons name="account-balance-wallet" size={24} color="#3B82F6" />
                 </View>
@@ -44,10 +55,17 @@ export default function AccountsScreen() {
                   </Text>
                   <Text style={styles.balance}>${account.balance.toString()}</Text>
                 </View>
-                <TouchableOpacity onPress={() => alert('Address copied!')}>
+                <TouchableOpacity
+                  hitSlop={12}
+                  onPress={async (e) => {
+                    e.stopPropagation();
+                    await Clipboard.setStringAsync(account.address);
+                    alert('Public key copied!');
+                  }}
+                >
                   <MaterialIcons name="content-copy" size={20} color="#64748B" />
                 </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
             ))}
             {accounts.length === 0 && <Text style={styles.emptyText}>No accounts found</Text>}
           </View>
