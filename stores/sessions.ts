@@ -125,5 +125,7 @@ export function expireSessions() {
   });
 }
 
-// Periodically expire sessions every minute
-setInterval(expireSessions, 60 * 1000);
+// Periodically expire sessions every hour. Combined with the 7-day TTL set
+// when a session is added, sessions are practically persistent across normal
+// app use; the sweeper just GCs sessions truly abandoned for >7 days.
+setInterval(expireSessions, 60 * 60 * 1000);

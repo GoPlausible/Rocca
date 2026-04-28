@@ -109,8 +109,8 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       inactivityInterval = setInterval(() => {
         const now = Date.now();
         const inactiveTime = now - lastUserActivityRef.current;
-        if (inactiveTime >= 60000) {
-          console.log('Closing connection due to inactivity (1 minute)');
+        if (inactiveTime >= 30 * 60 * 1000) {
+          console.log('Closing connection due to inactivity (30 minutes)');
           if (dataChannelRef.current) {
             dataChannelRef.current.close();
           }
@@ -170,7 +170,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           (s) => s.id === requestId && s.origin === origin,
         );
         if (!existingSession) {
-          addSession({ id: requestId, origin, status: 'active', ttl: 60000 });
+          addSession({ id: requestId, origin, status: 'active', ttl: 7 * 24 * 60 * 60 * 1000 });
         } else if (existingSession.status !== 'active') {
           updateSessionStatus(requestId, origin, 'active');
         }
