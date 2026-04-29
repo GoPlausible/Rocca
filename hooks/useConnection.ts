@@ -8,6 +8,7 @@ import { decodeOptions as decodeAssertionRequestOptions, encodeCredential } from
 import { encodeAddress } from '@algorandfoundation/keystore';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64 } from '@scure/base';
+import { requireBiometric } from '@/lib/biometric';
 import type { KeyData, KeyStoreState } from '@algorandfoundation/keystore';
 import { fetchSecret, getMasterKey, commit } from '@algorandfoundation/react-native-keystore';
 import { keyStore } from '@/stores/keystore';
@@ -134,33 +135,19 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       }
       const payloadBytes = base64.decode(req.payload);
 
-      // WebAuthn assertion as the HITL gate. Challenge is the sha256 of the
-      // payload so the assertion is bound to what we're about to sign. The
-      // assertion sig is discarded — we only use this for proof-of-presence.
-      // If WebAuthn fails for any reason, we treat the request as rejected.
-      const challenge = sha256(payloadBytes);
-      try {
-        const allowCredentials = passkey?.store
-          ? (passkey.store as any).getPasskeysForOrigin?.(origin)?.map((p: any) => ({
-              id: p.id,
-              type: 'public-key',
-            }))
-          : undefined;
-        const assertion = await (navigator.credentials as any).get({
-          publicKey: {
-            challenge,
-            rpId: origin.replace(/^https?:\/\//, ''),
-            timeout: 60000,
-            userVerification: 'required',
-            allowCredentials: allowCredentials ?? [],
-          },
-        });
-        if (!assertion) throw new Error('WebAuthn assertion returned null');
-      } catch (e) {
-        console.warn('WebAuthn approval gate failed', e);
-        rejectSigningRequest(`Approval gate failed: ${(e as Error).message}`);
+      // Real OS biometric / device-credential gate as HITL approval.
+      // Earlier this used a WebAuthn assertion via the autofill provider,
+      // but that activity rendered a tap-only "Sign In" button without
+      // calling BiometricPrompt — defeating the userVerification semantics.
+      // expo-local-authentication invokes BiometricPrompt directly.
+      const ok = await requireBiometric(`Approve signing request: ${req.description}`);
+      if (!ok) {
+        rejectSigningRequest('User verification failed or was cancelled');
         return;
       }
+      // Touch the payload digest so a future audit can correlate the
+      // approved bytes with the signature.
+      void sha256(payloadBytes);
 
       // Sign the raw payload bytes with the Ed25519 account key.
       const signature = await key.store.sign(accountKey.id, payloadBytes);
@@ -187,7 +174,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       console.error('approveSigningRequest failed', err);
       rejectSigningRequest(`Signing failed: ${(err as Error).message}`);
     }
-  }, [pendingSigningRequest, keys, key, passkey, origin, sendOnDataChannel, rejectSigningRequest]);
+  }, [pendingSigningRequest, keys, key, sendOnDataChannel, rejectSigningRequest]);
 
   const send = useCallback(
     (text: string) => {

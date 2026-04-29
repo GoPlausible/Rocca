@@ -24,7 +24,8 @@
     "build:all:android": "eas build --platform android --profile production --non-interactive",
     "build:all:ios": "eas build --platform ios --profile production --non-interactive",
     "prebuild": "expo prebuild",
-    "export": "expo export"
+    "export": "expo export",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@algorandfoundation/keystore": "^1.0.0-canary.12",
@@ -51,6 +52,7 @@
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",
     "expo-linking": "~8.0.11",
+    "expo-local-authentication": "55.0.13",
     "expo-router": "~6.0.23",
     "expo-screen-capture": "~8.0.9",
     "expo-splash-screen": "~31.0.13",
@@ -85,6 +87,8 @@
     "jest-expo": "^55.0.9",
     "lefthook": "^2.1.2",
     "oxfmt": "^0.44.0",
+    "patch-package": "8.0.1",
+    "postinstall-postinstall": "2.1.0",
     "react-test-renderer": "^19.1.0",
     "typescript": "~5.8.3"
   },

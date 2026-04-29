@@ -1,0 +1,26 @@
+diff --git a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
+index 323b223..05d05f6 100644
+--- a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
++++ b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
+@@ -77,7 +77,20 @@ class GetPasskeyActivity : AppCompatActivity() {
+             }
+         }
+ 
+-        // Improved UI
++        // [Rocca patch] The host app (Rocca) performs a real biometric /
++        // device-credential check at the JS layer (lib/biometric.ts) BEFORE
++        // calling navigator.credentials.get / Passkey.get, so this
++        // activity's tap-to-confirm "Sign In" button is redundant friction
++        // that adds no security. Auto-resolve and finish without rendering
++        // a UI. If the JS biometric was bypassed somehow, the system
++        // credential picker (CredentialManager bottom sheet) is still
++        // shown by the OS upstream of this activity — there is no path
++        // that reaches handleAssertion() without prior user verification.
++        handleAssertion()
++        return
++
++        // [Rocca patch — original UI below kept for reference; not reached]
++        @Suppress("UNREACHABLE_CODE")
+         val layout = LinearLayout(this).apply {
+             val padding = (32 * resources.displayMetrics.density).toInt()
+             orientation = LinearLayout.VERTICAL

@@ -10,7 +10,7 @@ import {
   Platform,
   Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useStore } from '@tanstack/react-store';
@@ -22,6 +22,8 @@ export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ origin: string; requestId: string }>();
   const [inputText, setInputText] = useState('');
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const insets = useSafeAreaInsets();
   const {
     session,
     isConnected,
@@ -59,14 +61,25 @@ export default function ChatScreen() {
     }
   }, [lastHeartbeat, isConnected]);
 
-  // Scroll to bottom when keyboard opens
+  // Track keyboard visibility so we can drop the system-nav-bar bottom
+  // inset when the IME is on screen (otherwise the input gets pushed below
+  // the keyboard on Android edge-to-edge mode), and scroll to the latest
+  // message on show.
   useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    });
-
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardOpen(true);
+        flatListRef.current?.scrollToEnd({ animated: true });
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardOpen(false),
+    );
     return () => {
-      keyboardDidShowListener.remove();
+      showSub.remove();
+      hideSub.remove();
     };
   }, []);
 
@@ -96,7 +109,7 @@ export default function ChatScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <Stack.Screen
         options={{
           headerTitle: () => (
@@ -161,7 +174,23 @@ export default function ChatScreen() {
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
 
-        <View style={styles.inputContainer}>
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              // When the keyboard is up the IME replaces the system nav
+              // bar visually, so insets.bottom must NOT be added (otherwise
+              // the input is pushed off-screen below the keyboard). When
+              // the keyboard is down we DO want to clear the nav bar.
+              paddingBottom: isKeyboardOpen
+                ? Platform.OS === 'ios'
+                  ? 8
+                  : 10
+                : Math.max(insets.bottom, Platform.OS === 'ios' ? 8 : 12) +
+                  (Platform.OS === 'android' ? 4 : 0),
+            },
+          ]}
+        >
           <TextInput
             style={styles.input}
             value={inputText}

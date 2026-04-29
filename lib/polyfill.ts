@@ -1,5 +1,6 @@
 import { Passkey } from 'react-native-passkey';
 import { fromBase64Url, toBase64URL } from '@goplausible/liquid-client/encoding';
+import { requireBiometric } from '@/lib/biometric';
 
 function toUint8Array(buf: BufferSource): Uint8Array {
   if (buf instanceof Uint8Array) return buf;
@@ -96,6 +97,18 @@ export function setupNavigatorPolyfill() {
     async get(obj: { publicKey?: PublicKeyCredentialRequestOptions }) {
       const publicKey = obj?.publicKey;
       if (!publicKey) return null;
+      // Real biometric / device-credential gate. The autofill provider
+      // activity that answers Passkey.get historically rendered a
+      // tap-only "Sign In" button and claimed `uv = true` to the relying
+      // party, defeating WebAuthn's userVerification semantics. We force
+      // a genuine OS-level user verification BEFORE the autofill ceremony.
+      const uv = (publicKey as any).userVerification ?? 'preferred';
+      if (uv !== 'discouraged') {
+        const ok = await requireBiometric('Verify your identity to continue');
+        if (!ok) {
+          throw new Error('User verification failed');
+        }
+      }
       const request = {
         ...publicKey,
         challenge:
@@ -137,6 +150,15 @@ export function setupNavigatorPolyfill() {
     async create(obj: { publicKey?: PublicKeyCredentialCreationOptions }) {
       const publicKey = obj?.publicKey;
       if (!publicKey) return null;
+      // Same biometric gate as get(). Attestation creates new credentials,
+      // which is itself a privileged operation requiring fresh user consent.
+      const uv = publicKey.authenticatorSelection?.userVerification ?? 'preferred';
+      if (uv !== 'discouraged') {
+        const ok = await requireBiometric('Verify your identity to create a passkey');
+        if (!ok) {
+          throw new Error('User verification failed');
+        }
+      }
       const request = {
         ...publicKey,
         challenge:
