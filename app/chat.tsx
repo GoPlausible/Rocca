@@ -20,6 +20,7 @@ import { messagesStore, Message } from '@/stores/messages';
 import { useConnection } from '@/hooks/useConnection';
 import { SigningRequestModal } from '@/dialogs/SigningRequestModal';
 import { BackChip } from '@/components/BackChip';
+import { MarkdownMessage } from '@/components/MarkdownMessage';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -96,14 +97,9 @@ export default function ChatScreen() {
     <View
       style={[styles.messageBubble, item.sender === 'me' ? styles.myMessage : styles.peerMessage]}
     >
-      <Text
-        style={[
-          styles.messageText,
-          item.sender === 'me' ? styles.myMessageText : styles.peerMessageText,
-        ]}
-      >
+      <MarkdownMessage variant={item.sender === 'me' ? 'mine' : 'peer'}>
         {item.text}
-      </Text>
+      </MarkdownMessage>
       <Text style={[styles.timestamp, item.sender === 'me' && styles.myTimestamp]}>
         {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
       </Text>
