@@ -1,11 +1,20 @@
-import React, { useRef } from 'react';
-import { Alert, StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  Alert,
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProvider } from '@/hooks/useProvider';
-import { removeSession, type Session } from '@/stores/sessions';
+import { Modal } from '@/components/Modal';
+import { removeSession, renameSession, type Session } from '@/stores/sessions';
 
 export default function ConnectionsScreen() {
   const router = useRouter();
@@ -14,6 +23,9 @@ export default function ConnectionsScreen() {
   // Track open swipeable rows so we can close any previously-open one when
   // a new row is swiped open.
   const openRowRef = useRef<Swipeable | null>(null);
+
+  const [renameTarget, setRenameTarget] = useState<Session | null>(null);
+  const [renameInput, setRenameInput] = useState('');
 
   const handleDelete = (session: Session) => {
     Alert.alert(
@@ -45,6 +57,27 @@ export default function ConnectionsScreen() {
     </TouchableOpacity>
   );
 
+  const handleEdit = (session: Session) => {
+    openRowRef.current?.close();
+    openRowRef.current = null;
+    setRenameInput(session.name ?? '');
+    setRenameTarget(session);
+  };
+
+  const renderLeftActions = (session: Session) => () => (
+    <TouchableOpacity style={styles.editAction} onPress={() => handleEdit(session)}>
+      <MaterialIcons name="edit" size={24} color="#FFFFFF" />
+      <Text style={styles.editText}>Edit</Text>
+    </TouchableOpacity>
+  );
+
+  const handleSaveRename = () => {
+    if (!renameTarget) return;
+    renameSession(renameTarget.id, renameTarget.origin, renameInput);
+    setRenameTarget(null);
+    setRenameInput('');
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <Stack.Screen
@@ -61,12 +94,15 @@ export default function ConnectionsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Active Connections</Text>
-          <Text style={styles.hint}>Swipe a connection left to remove it.</Text>
+          <Text style={styles.hint}>
+            Swipe right to rename, swipe left to remove.
+          </Text>
           <View style={styles.list}>
             {sessions.map((session, index) => (
               <Swipeable
                 key={`${session.origin}:${session.id}:${index}`}
                 renderRightActions={renderRightActions(session)}
+                renderLeftActions={renderLeftActions(session)}
                 onSwipeableWillOpen={(_direction, swipeable) => {
                   // Close any previously-open row before opening this one.
                   if (openRowRef.current && openRowRef.current !== swipeable) {
@@ -98,8 +134,13 @@ export default function ConnectionsScreen() {
                   </View>
                   <View style={styles.details}>
                     <Text style={styles.origin} numberOfLines={1}>
-                      {session.origin}
+                      {session.name?.trim() ? session.name : session.origin}
                     </Text>
+                    {session.name?.trim() ? (
+                      <Text style={styles.subOrigin} numberOfLines={1}>
+                        {session.origin}
+                      </Text>
+                    ) : null}
                     <Text style={styles.status}>Active</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={24} color="#CBD5E1" />
@@ -112,6 +153,42 @@ export default function ConnectionsScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={renameTarget !== null}
+        onClose={() => setRenameTarget(null)}
+        title="Rename connection"
+      >
+        <View style={styles.renameBody}>
+          <Text style={styles.renameLabel}>Name</Text>
+          <TextInput
+            style={styles.renameInput}
+            value={renameInput}
+            onChangeText={setRenameInput}
+            placeholder={renameTarget?.origin ?? ''}
+            placeholderTextColor="#94A3B8"
+            autoFocus
+            maxLength={64}
+          />
+          <Text style={styles.renameHint}>
+            Leave empty to clear the custom name and show the origin.
+          </Text>
+          <View style={styles.renameActions}>
+            <TouchableOpacity
+              style={[styles.renameButton, styles.renameCancel]}
+              onPress={() => setRenameTarget(null)}
+            >
+              <Text style={styles.renameCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.renameButton, styles.renameSave]}
+              onPress={handleSaveRename}
+            >
+              <Text style={styles.renameSaveText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -192,5 +269,77 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
     fontSize: 12,
+  },
+  editAction: {
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 96,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  editText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    marginTop: 4,
+    fontSize: 12,
+  },
+  subOrigin: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  renameBody: {
+    gap: 12,
+    paddingVertical: 4,
+  },
+  renameLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  renameInput: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  renameHint: {
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  renameActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  renameButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  renameCancel: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  renameCancelText: {
+    color: '#64748B',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  renameSave: {
+    backgroundColor: '#3B82F6',
+  },
+  renameSaveText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

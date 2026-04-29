@@ -9,7 +9,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
@@ -17,15 +16,30 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useStore } from '@tanstack/react-store';
 import { messagesStore, Message, clearMessages } from '@/stores/messages';
 import { useConnection } from '@/hooks/useConnection';
+import { SigningRequestModal } from '@/dialogs/SigningRequestModal';
 
 export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ origin: string; requestId: string }>();
   const [inputText, setInputText] = useState('');
-  const { isConnected, isLoading, isError, send, lastHeartbeat, reset, address } = useConnection(
-    params.origin || '',
-    params.requestId || '',
-  );
+  const {
+    session,
+    isConnected,
+    isLoading,
+    isError,
+    send,
+    lastHeartbeat,
+    reset,
+    address,
+    pendingSigningRequest,
+    approveSigningRequest,
+    rejectSigningRequest,
+  } = useConnection(params.origin || '', params.requestId || '');
+
+  const channelName =
+    (session?.name && session.name.trim()) || params.origin || 'Chat';
+  const statusIcon: 'link' | 'link-off' = isConnected ? 'link' : 'link-off';
+  const statusColor = isConnected ? '#10B981' : '#EF4444';
 
   const { messages } = useStore(messagesStore, (state) => ({
     messages: state.messages.filter(
@@ -93,13 +107,19 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <Stack.Screen
         options={{
-          title: isConnected
-            ? 'Connected'
-            : isLoading
-              ? 'Connecting...'
-              : isError
-                ? 'Error'
-                : 'Disconnected',
+          headerTitle: () => (
+            <View style={styles.headerTitle}>
+              <MaterialIcons
+                name={statusIcon}
+                size={20}
+                color={statusColor}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.headerTitleText} numberOfLines={1}>
+                {channelName}
+              </Text>
+            </View>
+          ),
           headerShown: true,
           headerLeft: () => (
             <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 10 }}>
@@ -133,43 +153,49 @@ export default function ChatScreen() {
         }}
       />
 
-      <KeyboardAvoidingView style={{ flex: 1 }}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={{ display: 'flex', height: '100%' }}>
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              renderItem={renderItem}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.messageList}
-              inverted={false}
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-              onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <FlatList
+          ref={flatListRef}
+          style={{ flex: 1 }}
+          data={messages}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.messageList}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        />
 
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={styles.input}
-                value={inputText}
-                onChangeText={setInputText}
-                placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
-                placeholderTextColor="#94A3B8"
-                editable={isConnected}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.sendButton,
-                  (!inputText.trim() || !isConnected) && styles.sendButtonDisabled,
-                ]}
-                onPress={handleSend}
-                disabled={!inputText.trim() || !isConnected}
-              >
-                <MaterialIcons name="send" size={24} color="white" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
+            placeholderTextColor="#94A3B8"
+            editable={isConnected}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              (!inputText.trim() || !isConnected) && styles.sendButtonDisabled,
+            ]}
+            onPress={handleSend}
+            disabled={!inputText.trim() || !isConnected}
+          >
+            <MaterialIcons name="send" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
+      <SigningRequestModal
+        request={pendingSigningRequest}
+        onApprove={approveSigningRequest}
+        onReject={rejectSigningRequest}
+      />
     </SafeAreaView>
   );
 }
@@ -178,6 +204,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+  },
+  headerTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: 220,
+  },
+  headerTitleText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#0F172A',
   },
   messageList: {
     padding: 16,

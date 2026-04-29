@@ -6,6 +6,8 @@ import { SignalClient } from '@goplausible/liquid-client/signal';
 import { toBase64URL, fromBase64Url, decodeAddress } from '@goplausible/liquid-client/encoding';
 import { decodeOptions as decodeAssertionRequestOptions, encodeCredential } from '@goplausible/liquid-client/assertion/encoder';
 import { encodeAddress } from '@algorandfoundation/keystore';
+import { sha256 } from '@noble/hashes/sha2';
+import { base64 } from '@scure/base';
 import type { KeyData, KeyStoreState } from '@algorandfoundation/keystore';
 import { fetchSecret, getMasterKey, commit } from '@algorandfoundation/react-native-keystore';
 import { keyStore } from '@/stores/keystore';
@@ -21,6 +23,16 @@ import {
   Session,
 } from '@/stores/sessions';
 
+export interface PendingSigningRequest {
+  /** Envelope id from the inbound request — echoed in our response as `thid`. */
+  id: string;
+  description: string;
+  /** Base64 of the bytes to sign. */
+  payload: string;
+  keyType: 'account' | 'identity';
+  displayHint?: 'text' | 'json' | 'hex';
+}
+
 interface UseConnectionResult {
   session: Session | undefined;
   address: string | null;
@@ -31,6 +43,9 @@ interface UseConnectionResult {
   isConnected: boolean;
   lastHeartbeat: number;
   reset: () => void;
+  pendingSigningRequest: PendingSigningRequest | null;
+  approveSigningRequest: () => Promise<void>;
+  rejectSigningRequest: (reason?: string) => void;
 }
 
 export function useConnection(origin: string, requestId: string): UseConnectionResult {
@@ -48,6 +63,8 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   const [lastHeartbeat, setLastHeartbeat] = useState<number>(Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [pendingSigningRequest, setPendingSigningRequest] =
+    useState<PendingSigningRequest | null>(null);
 
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const clientRef = useRef<SignalClient | null>(null);
@@ -68,6 +85,109 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
     setError(null);
     updateSessionStatus(requestId, origin, 'closed');
   }, [requestId, origin]);
+
+  const sendOnDataChannel = useCallback((envelope: unknown) => {
+    const ch = dataChannelRef.current;
+    if (!ch || ch.readyState !== 'open') {
+      console.warn('AC2 protocol send skipped — channel not open');
+      return false;
+    }
+    try {
+      ch.send(JSON.stringify(envelope));
+      return true;
+    } catch (err) {
+      console.error('AC2 protocol send failed', err);
+      return false;
+    }
+  }, []);
+
+  const rejectSigningRequest = useCallback(
+    (reason?: string) => {
+      const req = pendingSigningRequest;
+      if (!req) return;
+      sendOnDataChannel({
+        '@context': ['https://ac2.io/v1'],
+        type: 'ac2/SigningRejected',
+        id: `rej-${Date.now()}`,
+        thid: req.id,
+        from: addressRef.current ?? 'unknown',
+        created_time: Date.now(),
+        body: { reason: reason ?? 'User rejected the signing request' },
+      });
+      setPendingSigningRequest(null);
+    },
+    [pendingSigningRequest, sendOnDataChannel],
+  );
+
+  const approveSigningRequest = useCallback(async () => {
+    const req = pendingSigningRequest;
+    if (!req) return;
+    try {
+      const accountKey = (keys as any[]).find(
+        (k) =>
+          k.type === 'hd-derived-ed25519' &&
+          (k.metadata?.context ?? 0) === 0 &&
+          k.publicKey instanceof Uint8Array,
+      );
+      if (!accountKey) {
+        throw new Error('No account key available for signing');
+      }
+      const payloadBytes = base64.decode(req.payload);
+
+      // WebAuthn assertion as the HITL gate. Challenge is the sha256 of the
+      // payload so the assertion is bound to what we're about to sign. The
+      // assertion sig is discarded — we only use this for proof-of-presence.
+      // If WebAuthn fails for any reason, we treat the request as rejected.
+      const challenge = sha256(payloadBytes);
+      try {
+        const allowCredentials = passkey?.store
+          ? (passkey.store as any).getPasskeysForOrigin?.(origin)?.map((p: any) => ({
+              id: p.id,
+              type: 'public-key',
+            }))
+          : undefined;
+        const assertion = await (navigator.credentials as any).get({
+          publicKey: {
+            challenge,
+            rpId: origin.replace(/^https?:\/\//, ''),
+            timeout: 60000,
+            userVerification: 'required',
+            allowCredentials: allowCredentials ?? [],
+          },
+        });
+        if (!assertion) throw new Error('WebAuthn assertion returned null');
+      } catch (e) {
+        console.warn('WebAuthn approval gate failed', e);
+        rejectSigningRequest(`Approval gate failed: ${(e as Error).message}`);
+        return;
+      }
+
+      // Sign the raw payload bytes with the Ed25519 account key.
+      const signature = await key.store.sign(accountKey.id, payloadBytes);
+      const publicKeyB64 = base64.encode(accountKey.publicKey);
+      const signatureB64 = base64.encode(signature);
+      const algoAddress = encodeAddress(accountKey.publicKey);
+
+      sendOnDataChannel({
+        '@context': ['https://ac2.io/v1'],
+        type: 'ac2/SigningResponse',
+        id: `res-${Date.now()}`,
+        thid: req.id,
+        from: addressRef.current ?? algoAddress,
+        created_time: Date.now(),
+        body: {
+          signature: signatureB64,
+          publicKey: publicKeyB64,
+          address: algoAddress,
+          keyType: req.keyType,
+        },
+      });
+      setPendingSigningRequest(null);
+    } catch (err) {
+      console.error('approveSigningRequest failed', err);
+      rejectSigningRequest(`Signing failed: ${(err as Error).message}`);
+    }
+  }, [pendingSigningRequest, keys, key, passkey, origin, sendOnDataChannel, rejectSigningRequest]);
 
   const send = useCallback(
     (text: string) => {
@@ -564,9 +684,57 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           updateSessionActivity(requestId, origin);
           lastUserActivityRef.current = Date.now();
           setLastHeartbeat(Date.now());
-          if (event.data && event.data.trim() && addressRef.current) {
+          const raw = typeof event.data === 'string' ? event.data.trim() : '';
+          if (!raw) return;
+
+          // Try AC2 protocol JSON first — SigningRequest pops the modal,
+          // anything else falls through to the chat path.
+          if (raw.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && parsed.type === 'ac2/SigningRequest' && parsed.body) {
+                const id =
+                  typeof parsed.id === 'string'
+                    ? parsed.id
+                    : typeof parsed.thid === 'string'
+                      ? parsed.thid
+                      : '';
+                const desc =
+                  typeof parsed.body.description === 'string'
+                    ? parsed.body.description
+                    : 'Signature requested';
+                const payload =
+                  typeof parsed.body.payload === 'string' ? parsed.body.payload : '';
+                if (!id || !payload) return;
+                const keyType: 'account' | 'identity' =
+                  parsed.body.key_type === 'identity' ? 'identity' : 'account';
+                const displayHint =
+                  parsed.body.display_hint === 'json' ||
+                  parsed.body.display_hint === 'hex' ||
+                  parsed.body.display_hint === 'text'
+                    ? (parsed.body.display_hint as 'text' | 'json' | 'hex')
+                    : undefined;
+                setPendingSigningRequest({
+                  id,
+                  description: desc,
+                  payload,
+                  keyType,
+                  ...(displayHint !== undefined ? { displayHint } : {}),
+                });
+                return;
+              }
+              // Other ac2/* protocol shapes — drop, don't surface as chat.
+              if (typeof parsed?.type === 'string' && parsed.type.startsWith('ac2/')) {
+                return;
+              }
+            } catch {
+              // Not JSON — fall through to chat.
+            }
+          }
+
+          if (addressRef.current) {
             addMessage({
-              text: event.data.trim(),
+              text: raw,
               sender: 'peer',
               address: addressRef.current,
               origin,
@@ -636,5 +804,8 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
     isConnected,
     lastHeartbeat,
     reset,
+    pendingSigningRequest,
+    approveSigningRequest,
+    rejectSigningRequest,
   };
 }

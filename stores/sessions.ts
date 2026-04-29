@@ -4,6 +4,8 @@ import { createMMKV } from 'react-native-mmkv';
 export interface Session {
   id: string; // Typically the requestId
   origin: string;
+  /** User-supplied display label, set via the rename action on Connections. */
+  name?: string;
   timestamp: number;
   status: 'active' | 'closed' | 'failed';
   lastActivity: number;
@@ -85,6 +87,18 @@ export function updateSessionActivity(id: string, origin: string) {
     ...state,
     sessions: state.sessions.map((s) =>
       s.id === id && s.origin === origin ? { ...s, lastActivity: Date.now() } : s,
+    ),
+  }));
+}
+
+export function renameSession(id: string, origin: string, name: string) {
+  const trimmed = name.trim();
+  sessionsStore.setState((state) => ({
+    ...state,
+    sessions: state.sessions.map((s) =>
+      s.id === id && s.origin === origin
+        ? { ...s, name: trimmed.length > 0 ? trimmed : undefined }
+        : s,
     ),
   }));
 }
