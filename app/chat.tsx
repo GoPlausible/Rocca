@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   FlatList,
   Platform,
-  Keyboard,
-  type KeyboardEvent,
 } from 'react-native';
+import Animated, {
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -22,9 +24,16 @@ export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ origin: string; requestId: string }>();
   const [inputText, setInputText] = useState('');
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const insets = useSafeAreaInsets();
-  const isKeyboardOpen = keyboardHeight > 0;
+  // Reanimated's keyboard hook reads IME insets via WindowInsetsAnimationCompat,
+  // which is the only API that works correctly under Android edge-to-edge mode.
+  // The legacy Keyboard.addListener path doesn't fire reliably when the
+  // activity stays full-bleed (which is what edgeToEdgeEnabled does).
+  const keyboard = useAnimatedKeyboard();
+  const padBottomKbClosed =
+    Math.max(insets.bottom, Platform.OS === 'ios' ? 8 : 12) +
+    (Platform.OS === 'android' ? 4 : 0);
+  const padBottomKbOpen = Platform.OS === 'ios' ? 8 : 10;
   const {
     session,
     isConnected,
@@ -62,33 +71,18 @@ export default function ChatScreen() {
     }
   }, [lastHeartbeat, isConnected]);
 
-  // Manual keyboard tracking. We do NOT use KeyboardAvoidingView because
-  // it's unreliable in Android edge-to-edge mode (its measurements get
-  // wrong relative to the navigator's header). Instead we read the actual
-  // keyboard height from the OS event and apply it as paddingBottom on
-  // the chat container. The IME's `endCoordinates.height` already includes
-  // the system nav bar overlap on Android, so this is exact.
-  useEffect(() => {
-    const onShow = (e: KeyboardEvent) => {
-      setKeyboardHeight(e.endCoordinates?.height ?? 0);
-      requestAnimationFrame(() =>
-        flatListRef.current?.scrollToEnd({ animated: true }),
-      );
-    };
-    const onHide = () => setKeyboardHeight(0);
-    const showSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      onShow,
-    );
-    const hideSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      onHide,
-    );
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
+  // Animated styles that read keyboard.height directly on the UI thread.
+  // The outer container's paddingBottom equals the live IME height — this
+  // pushes the FlatList + input above the keyboard with frame-perfect
+  // synchronization. The input's own paddingBottom flips between
+  // nav-bar-clearing (closed) and a small visual gap (open).
+  const containerAnimStyle = useAnimatedStyle(() => ({
+    paddingBottom: keyboard.height.value,
+  }));
+  const inputContainerAnimStyle = useAnimatedStyle(() => ({
+    paddingBottom:
+      keyboard.height.value > 0 ? padBottomKbOpen : padBottomKbClosed,
+  }));
 
   const handleSend = () => {
     if (inputText.trim()) {
@@ -163,16 +157,7 @@ export default function ChatScreen() {
         }}
       />
 
-      <View
-        style={{
-          flex: 1,
-          // Push the entire chat (FlatList + input) up by the actual
-          // keyboard height when the IME is open. Read directly from
-          // Keyboard.addListener — no KeyboardAvoidingView, no offset
-          // guesswork.
-          paddingBottom: keyboardHeight,
-        }}
-      >
+      <Animated.View style={[{ flex: 1 }, containerAnimStyle]}>
         <FlatList
           ref={flatListRef}
           style={{ flex: 1 }}
@@ -186,21 +171,8 @@ export default function ChatScreen() {
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
 
-        <View
-          style={[
-            styles.inputContainer,
-            {
-              // Keyboard-up: small visual gap above the IME (the parent's
-              // paddingBottom already places us flush against the keyboard).
-              // Keyboard-down: clear the system nav bar.
-              paddingBottom: isKeyboardOpen
-                ? Platform.OS === 'ios'
-                  ? 8
-                  : 10
-                : Math.max(insets.bottom, Platform.OS === 'ios' ? 8 : 12) +
-                  (Platform.OS === 'android' ? 4 : 0),
-            },
-          ]}
+        <Animated.View
+          style={[styles.inputContainer, inputContainerAnimStyle]}
         >
           <TextInput
             style={styles.input}
@@ -220,8 +192,8 @@ export default function ChatScreen() {
           >
             <MaterialIcons name="send" size={24} color="white" />
           </TouchableOpacity>
-        </View>
-      </View>
+        </Animated.View>
+      </Animated.View>
       <SigningRequestModal
         request={pendingSigningRequest}
         onApprove={approveSigningRequest}
