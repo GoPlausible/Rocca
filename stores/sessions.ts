@@ -6,6 +6,8 @@ export interface Session {
   origin: string;
   /** User-supplied display label, set via the rename action on Connections. */
   name?: string;
+  /** Optional emoji avatar set per connection in the rename/edit modal. */
+  avatar?: string;
   timestamp: number;
   status: 'active' | 'closed' | 'failed';
   lastActivity: number;
@@ -98,6 +100,17 @@ export function renameSession(id: string, origin: string, name: string) {
     sessions: state.sessions.map((s) =>
       s.id === id && s.origin === origin
         ? { ...s, name: trimmed.length > 0 ? trimmed : undefined }
+        : s,
+    ),
+  }));
+}
+
+export function setSessionAvatar(id: string, origin: string, avatar: string | null) {
+  sessionsStore.setState((state) => ({
+    ...state,
+    sessions: state.sessions.map((s) =>
+      s.id === id && s.origin === origin
+        ? { ...s, avatar: avatar ?? undefined }
         : s,
     ),
   }));

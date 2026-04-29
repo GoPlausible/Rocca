@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useStore } from '@tanstack/react-store';
-import { messagesStore, Message, clearMessages } from '@/stores/messages';
+import { messagesStore, Message } from '@/stores/messages';
 import { useConnection } from '@/hooks/useConnection';
 import { SigningRequestModal } from '@/dialogs/SigningRequestModal';
 
@@ -25,11 +25,8 @@ export default function ChatScreen() {
   const {
     session,
     isConnected,
-    isLoading,
-    isError,
     send,
     lastHeartbeat,
-    reset,
     address,
     pendingSigningRequest,
     approveSigningRequest,
@@ -38,7 +35,7 @@ export default function ChatScreen() {
 
   const channelName =
     (session?.name && session.name.trim()) || params.origin || 'Chat';
-  const statusIcon: 'link' | 'link-off' = isConnected ? 'link' : 'link-off';
+  const channelAvatar = session?.avatar;
   const statusColor = isConnected ? '#10B981' : '#EF4444';
 
   const { messages } = useStore(messagesStore, (state) => ({
@@ -73,11 +70,6 @@ export default function ChatScreen() {
     };
   }, []);
 
-  const handleDisconnect = () => {
-    reset();
-    router.back();
-  };
-
   const handleSend = () => {
     if (inputText.trim()) {
       send(inputText.trim());
@@ -109,12 +101,13 @@ export default function ChatScreen() {
         options={{
           headerTitle: () => (
             <View style={styles.headerTitle}>
-              <MaterialIcons
-                name={statusIcon}
-                size={20}
-                color={statusColor}
-                style={{ marginRight: 8 }}
-              />
+              <View style={styles.headerAvatar}>
+                {channelAvatar ? (
+                  <Text style={styles.headerAvatarEmoji}>{channelAvatar}</Text>
+                ) : (
+                  <MaterialIcons name="link" size={18} color="#3B82F6" />
+                )}
+              </View>
               <Text style={styles.headerTitleText} numberOfLines={1}>
                 {channelName}
               </Text>
@@ -122,40 +115,38 @@ export default function ChatScreen() {
           ),
           headerShown: true,
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 10 }}>
-              <MaterialIcons name="arrow-back" size={24} color="#3B82F6" />
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backChip}
+              hitSlop={6}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="chevron-left" size={26} color="#3B82F6" />
             </TouchableOpacity>
           ),
-          headerRight: () =>
-            isConnected ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {isHeartbeatVisible && (
-                  <MaterialIcons
-                    name="favorite"
-                    size={16}
-                    color="#10B981"
-                    style={{ marginRight: 10 }}
-                  />
-                )}
-                <TouchableOpacity
-                  onPress={() =>
-                    address && clearMessages(address, params.origin || '', params.requestId || '')
-                  }
-                  style={{ marginRight: 15 }}
-                >
-                  <MaterialIcons name="delete-outline" size={24} color="#6B7280" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleDisconnect} style={{ marginRight: 15 }}>
-                  <MaterialIcons name="link-off" size={24} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            ) : null,
+          headerRight: () => (
+            <View style={styles.headerRightBadge}>
+              {isHeartbeatVisible && isConnected && (
+                <MaterialIcons
+                  name="favorite"
+                  size={12}
+                  color="#10B981"
+                  style={{ marginRight: 6 }}
+                />
+              )}
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+              <Text style={[styles.statusText, { color: statusColor }]}>
+                {isConnected ? 'Online' : 'Offline'}
+              </Text>
+            </View>
+          ),
         }}
       />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <FlatList
           ref={flatListRef}
@@ -210,10 +201,51 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 220,
   },
+  headerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E1EFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  headerAvatarEmoji: {
+    fontSize: 18,
+  },
   headerTitleText: {
     fontSize: 17,
     fontWeight: '600',
     color: '#0F172A',
+  },
+  backChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  headerRightBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginRight: 12,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   messageList: {
     padding: 16,

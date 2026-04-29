@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
+import { useStore } from '@tanstack/react-store';
 import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import Logo from '../components/Logo';
 import { DidDocumentModal } from '@/dialogs/DidDocumentModal';
+import { EmojiPickerModal } from '@/components/EmojiPickerModal';
 import { useProvider } from '@/hooks/useProvider';
+import {
+  preferencesStore,
+  setUserAvatarEmoji,
+  toggleBalanceHidden,
+} from '@/stores/preferences';
 
 // Extract provider configuration from expo-constants
 const config = Constants.expoConfig?.extra?.provider || {
@@ -27,6 +33,9 @@ export default function LandingScreen() {
   const { key, identity, account, identities, accounts, passkey, passkeys, sessions } =
     useProvider();
   const [modalVisible, setModalVisible] = useState(false);
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const userAvatarEmoji = useStore(preferencesStore, (s) => s.userAvatarEmoji);
+  const balanceHidden = useStore(preferencesStore, (s) => s.balanceHidden);
 
   const activeIdentity = identities[0];
   const activeAccount = accounts[0];
@@ -36,7 +45,6 @@ export default function LandingScreen() {
     primaryColor,
     secondaryColor,
     accentColor,
-    welcomeMessage,
     showAccounts,
     showPasskeys,
     showIdentities,
@@ -45,26 +53,32 @@ export default function LandingScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#F8FAFC' }]}>
+      <Stack.Screen options={{ title: 'Rocca' }} />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-            <Logo size={40} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.welcomeText} numberOfLines={1}>
-                {welcomeMessage}
-              </Text>
-              <Text style={styles.userName} numberOfLines={1}>
-                {activeAccount
-                  ? `${activeAccount.address.slice(0, 8)}...${activeAccount.address.replace('=', '').slice(-8)}`
-                  : `${name} Wallet`}
-              </Text>
-            </View>
+          <TouchableOpacity
+            style={[styles.avatarButton, { borderColor: primaryColor }]}
+            onPress={() => setAvatarPickerOpen(true)}
+            activeOpacity={0.8}
+          >
+            {userAvatarEmoji ? (
+              <Text style={styles.avatarEmoji}>{userAvatarEmoji}</Text>
+            ) : (
+              <MaterialIcons name="account-circle" size={36} color={primaryColor} />
+            )}
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.welcomeText} numberOfLines={1}>
+              Your identity
+            </Text>
+            <Text style={styles.userName} numberOfLines={1}>
+              {activeAccount
+                ? `${activeAccount.address.slice(0, 8)}...${activeAccount.address.replace('=', '').slice(-8)}`
+                : `${name} Wallet`}
+            </Text>
           </View>
           <TouchableOpacity style={styles.profileButton} onPress={() => router.push('/scan')}>
             <MaterialIcons name="qr-code-scanner" size={28} color={primaryColor} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.profileButton}>
-            <MaterialIcons name="account-circle" size={32} color={primaryColor} />
           </TouchableOpacity>
         </View>
 
@@ -82,10 +96,26 @@ export default function LandingScreen() {
         >
           <View style={styles.cardHeader}>
             <Text style={styles.balanceLabel}>Total Balance</Text>
-            <MaterialIcons name="visibility" size={20} color="rgba(255, 255, 255, 0.6)" />
+            <TouchableOpacity
+              hitSlop={8}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                toggleBalanceHidden();
+              }}
+            >
+              <MaterialIcons
+                name={balanceHidden ? 'visibility-off' : 'visibility'}
+                size={20}
+                color="rgba(255, 255, 255, 0.85)"
+              />
+            </TouchableOpacity>
           </View>
           <Text style={styles.balanceAmount}>
-            {activeAccount ? `$${activeAccount.balance.toString()}` : '$0.00'}
+            {balanceHidden
+              ? '••••••'
+              : activeAccount
+                ? `$${activeAccount.balance.toString()}`
+                : '$0.00'}
           </Text>
           <View style={styles.actionButtons}>
             <TouchableOpacity style={styles.actionButton}>
@@ -224,6 +254,14 @@ export default function LandingScreen() {
         onClose={() => setModalVisible(false)}
         didDocument={activeIdentity?.didDocument}
       />
+
+      <EmojiPickerModal
+        visible={avatarPickerOpen}
+        initial={userAvatarEmoji}
+        title="Pick your avatar"
+        onClose={() => setAvatarPickerOpen(false)}
+        onSelect={(emoji) => setUserAvatarEmoji(emoji)}
+      />
     </SafeAreaView>
   );
 }
@@ -266,6 +304,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+  },
+  avatarButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  avatarEmoji: {
+    fontSize: 28,
   },
   balanceCard: {
     borderRadius: 24,

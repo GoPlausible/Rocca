@@ -14,7 +14,13 @@ import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProvider } from '@/hooks/useProvider';
 import { Modal } from '@/components/Modal';
-import { removeSession, renameSession, type Session } from '@/stores/sessions';
+import { EmojiPickerModal } from '@/components/EmojiPickerModal';
+import {
+  removeSession,
+  renameSession,
+  setSessionAvatar,
+  type Session,
+} from '@/stores/sessions';
 
 export default function ConnectionsScreen() {
   const router = useRouter();
@@ -26,6 +32,8 @@ export default function ConnectionsScreen() {
 
   const [renameTarget, setRenameTarget] = useState<Session | null>(null);
   const [renameInput, setRenameInput] = useState('');
+  const [renameAvatar, setRenameAvatar] = useState<string | null>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
   const handleDelete = (session: Session) => {
     Alert.alert(
@@ -61,6 +69,7 @@ export default function ConnectionsScreen() {
     openRowRef.current?.close();
     openRowRef.current = null;
     setRenameInput(session.name ?? '');
+    setRenameAvatar(session.avatar ?? null);
     setRenameTarget(session);
   };
 
@@ -74,8 +83,10 @@ export default function ConnectionsScreen() {
   const handleSaveRename = () => {
     if (!renameTarget) return;
     renameSession(renameTarget.id, renameTarget.origin, renameInput);
+    setSessionAvatar(renameTarget.id, renameTarget.origin, renameAvatar);
     setRenameTarget(null);
     setRenameInput('');
+    setRenameAvatar(null);
   };
 
   return (
@@ -130,7 +141,11 @@ export default function ConnectionsScreen() {
                   }
                 >
                   <View style={styles.iconContainer}>
-                    <MaterialIcons name="link" size={24} color="#64748B" />
+                    {session.avatar ? (
+                      <Text style={styles.iconEmoji}>{session.avatar}</Text>
+                    ) : (
+                      <MaterialIcons name="link" size={24} color="#64748B" />
+                    )}
                   </View>
                   <View style={styles.details}>
                     <Text style={styles.origin} numberOfLines={1}>
@@ -157,9 +172,29 @@ export default function ConnectionsScreen() {
       <Modal
         visible={renameTarget !== null}
         onClose={() => setRenameTarget(null)}
-        title="Rename connection"
+        title="Edit connection"
       >
         <View style={styles.renameBody}>
+          <View style={styles.avatarRow}>
+            <TouchableOpacity
+              style={styles.avatarPickerCircle}
+              onPress={() => setEmojiPickerOpen(true)}
+              activeOpacity={0.8}
+            >
+              {renameAvatar ? (
+                <Text style={styles.avatarPickerEmoji}>{renameAvatar}</Text>
+              ) : (
+                <MaterialIcons name="emoji-emotions" size={28} color="#64748B" />
+              )}
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.renameLabel}>Avatar</Text>
+              <Text style={styles.renameHint}>
+                Tap the circle to pick an emoji.
+              </Text>
+            </View>
+          </View>
+
           <Text style={styles.renameLabel}>Name</Text>
           <TextInput
             style={styles.renameInput}
@@ -189,6 +224,14 @@ export default function ConnectionsScreen() {
           </View>
         </View>
       </Modal>
+
+      <EmojiPickerModal
+        visible={emojiPickerOpen}
+        initial={renameAvatar}
+        title="Pick connection avatar"
+        onClose={() => setEmojiPickerOpen(false)}
+        onSelect={(emoji) => setRenameAvatar(emoji)}
+      />
     </SafeAreaView>
   );
 }
@@ -292,6 +335,28 @@ const styles = StyleSheet.create({
   renameBody: {
     gap: 12,
     paddingVertical: 4,
+  },
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 4,
+  },
+  avatarPickerCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#E1EFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  avatarPickerEmoji: {
+    fontSize: 32,
+  },
+  iconEmoji: {
+    fontSize: 24,
   },
   renameLabel: {
     fontSize: 12,
