@@ -6,9 +6,9 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Keyboard,
+  type KeyboardEvent,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
@@ -22,8 +22,9 @@ export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ origin: string; requestId: string }>();
   const [inputText, setInputText] = useState('');
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const insets = useSafeAreaInsets();
+  const isKeyboardOpen = keyboardHeight > 0;
   const {
     session,
     isConnected,
@@ -61,21 +62,27 @@ export default function ChatScreen() {
     }
   }, [lastHeartbeat, isConnected]);
 
-  // Track keyboard visibility so we can drop the system-nav-bar bottom
-  // inset when the IME is on screen (otherwise the input gets pushed below
-  // the keyboard on Android edge-to-edge mode), and scroll to the latest
-  // message on show.
+  // Manual keyboard tracking. We do NOT use KeyboardAvoidingView because
+  // it's unreliable in Android edge-to-edge mode (its measurements get
+  // wrong relative to the navigator's header). Instead we read the actual
+  // keyboard height from the OS event and apply it as paddingBottom on
+  // the chat container. The IME's `endCoordinates.height` already includes
+  // the system nav bar overlap on Android, so this is exact.
   useEffect(() => {
+    const onShow = (e: KeyboardEvent) => {
+      setKeyboardHeight(e.endCoordinates?.height ?? 0);
+      requestAnimationFrame(() =>
+        flatListRef.current?.scrollToEnd({ animated: true }),
+      );
+    };
+    const onHide = () => setKeyboardHeight(0);
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        setIsKeyboardOpen(true);
-        flatListRef.current?.scrollToEnd({ animated: true });
-      },
+      onShow,
     );
     const hideSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setIsKeyboardOpen(false),
+      onHide,
     );
     return () => {
       showSub.remove();
@@ -156,10 +163,15 @@ export default function ChatScreen() {
         }}
       />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      <View
+        style={{
+          flex: 1,
+          // Push the entire chat (FlatList + input) up by the actual
+          // keyboard height when the IME is open. Read directly from
+          // Keyboard.addListener — no KeyboardAvoidingView, no offset
+          // guesswork.
+          paddingBottom: keyboardHeight,
+        }}
       >
         <FlatList
           ref={flatListRef}
@@ -178,10 +190,9 @@ export default function ChatScreen() {
           style={[
             styles.inputContainer,
             {
-              // When the keyboard is up the IME replaces the system nav
-              // bar visually, so insets.bottom must NOT be added (otherwise
-              // the input is pushed off-screen below the keyboard). When
-              // the keyboard is down we DO want to clear the nav bar.
+              // Keyboard-up: small visual gap above the IME (the parent's
+              // paddingBottom already places us flush against the keyboard).
+              // Keyboard-down: clear the system nav bar.
               paddingBottom: isKeyboardOpen
                 ? Platform.OS === 'ios'
                   ? 8
@@ -210,7 +221,7 @@ export default function ChatScreen() {
             <MaterialIcons name="send" size={24} color="white" />
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </View>
       <SigningRequestModal
         request={pendingSigningRequest}
         onApprove={approveSigningRequest}

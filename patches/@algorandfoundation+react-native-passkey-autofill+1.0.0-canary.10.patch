@@ -1,22 +1,27 @@
-diff --git a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
-index 323b223..05d05f6 100644
---- a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
-+++ b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
-@@ -77,7 +77,20 @@ class GetPasskeyActivity : AppCompatActivity() {
+diff --git a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/CreatePasskeyActivity.kt b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/CreatePasskeyActivity.kt
+index 540a228..4facb18 100644
+--- a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/CreatePasskeyActivity.kt
++++ b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/CreatePasskeyActivity.kt
+@@ -15,6 +15,9 @@ import android.widget.LinearLayout
+ import android.widget.TextView
+ import androidx.annotation.RequiresApi
+ import androidx.appcompat.app.AppCompatActivity
++import androidx.biometric.BiometricManager
++import androidx.biometric.BiometricPrompt
++import androidx.core.content.ContextCompat
+ import androidx.credentials.CreatePublicKeyCredentialRequest
+ import androidx.credentials.CreatePublicKeyCredentialResponse
+ import androidx.credentials.provider.PendingIntentHandler
+@@ -80,7 +83,15 @@ class CreatePasskeyActivity : AppCompatActivity() {
              }
          }
  
 -        // Improved UI
-+        // [Rocca patch] The host app (Rocca) performs a real biometric /
-+        // device-credential check at the JS layer (lib/biometric.ts) BEFORE
-+        // calling navigator.credentials.get / Passkey.get, so this
-+        // activity's tap-to-confirm "Sign In" button is redundant friction
-+        // that adds no security. Auto-resolve and finish without rendering
-+        // a UI. If the JS biometric was bypassed somehow, the system
-+        // credential picker (CredentialManager bottom sheet) is still
-+        // shown by the OS upstream of this activity — there is no path
-+        // that reaches handleAssertion() without prior user verification.
-+        handleAssertion()
++        // [Rocca patch] Replace tap-to-confirm "Create Passkey" button with
++        // a real BiometricPrompt. The system credential picker has already
++        // shown which RP is being enrolled — this is the user-verification
++        // step the spec actually expects.
++        runBiometricGate()
 +        return
 +
 +        // [Rocca patch — original UI below kept for reference; not reached]
@@ -24,3 +29,123 @@ index 323b223..05d05f6 100644
          val layout = LinearLayout(this).apply {
              val padding = (32 * resources.displayMetrics.density).toInt()
              orientation = LinearLayout.VERTICAL
+@@ -213,6 +224,37 @@ class CreatePasskeyActivity : AppCompatActivity() {
+     }
+ 
+     @SuppressLint("RestrictedApi")
++    // [Rocca patch] BiometricPrompt gate before creating the new credential.
++    private fun runBiometricGate() {
++        val bm = BiometricManager.from(this)
++        val allowed = BiometricManager.Authenticators.BIOMETRIC_STRONG or
++                BiometricManager.Authenticators.DEVICE_CREDENTIAL
++        if (bm.canAuthenticate(allowed) != BiometricManager.BIOMETRIC_SUCCESS) {
++            Log.w(TAG, "No biometric/device-credential available — refusing creation")
++            setResult(Activity.RESULT_CANCELED)
++            finish()
++            return
++        }
++        val executor = ContextCompat.getMainExecutor(this)
++        val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
++            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
++                handleCreation()
++            }
++            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
++                Log.w(TAG, "Biometric auth error $errorCode: $errString")
++                setResult(Activity.RESULT_CANCELED)
++                finish()
++            }
++            override fun onAuthenticationFailed() { /* let user retry */ }
++        })
++        val info = BiometricPrompt.PromptInfo.Builder()
++            .setTitle("Verify your identity")
++            .setSubtitle("Create passkey for $displayOrigin")
++            .setAllowedAuthenticators(allowed)
++            .build()
++        prompt.authenticate(info)
++    }
++
+     private fun handleCreation() {
+         try {
+             val req = request ?: throw IllegalStateException("No request found")
+diff --git a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
+index 323b223..05ed5e3 100644
+--- a/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
++++ b/node_modules/@algorandfoundation/react-native-passkey-autofill/android/src/main/java/co/algorand/passkeyautofill/GetPasskeyActivity.kt
+@@ -15,6 +15,9 @@ import android.widget.LinearLayout
+ import android.widget.TextView
+ import androidx.annotation.RequiresApi
+ import androidx.appcompat.app.AppCompatActivity
++import androidx.biometric.BiometricManager
++import androidx.biometric.BiometricPrompt
++import androidx.core.content.ContextCompat
+ import androidx.credentials.GetCredentialResponse
+ import androidx.credentials.GetPublicKeyCredentialOption
+ import androidx.credentials.PublicKeyCredential
+@@ -77,7 +80,17 @@ class GetPasskeyActivity : AppCompatActivity() {
+             }
+         }
+ 
+-        // Improved UI
++        // [Rocca patch] WebAuthn-correct flow: the system credential picker
++        // has already shown the user the matching passkey before dispatching
++        // here. Now do user verification with a real BiometricPrompt, then
++        // produce the assertion. The original tap-to-confirm "Sign In"
++        // button is replaced by the OS biometric prompt — meaningful UV
++        // instead of a placebo button click.
++        runBiometricGate()
++        return
++
++        // [Rocca patch — original UI below kept for reference; not reached]
++        @Suppress("UNREACHABLE_CODE")
+         val layout = LinearLayout(this).apply {
+             val padding = (32 * resources.displayMetrics.density).toInt()
+             orientation = LinearLayout.VERTICAL
+@@ -200,6 +213,48 @@ class GetPasskeyActivity : AppCompatActivity() {
+         layout.requestFocus()
+     }
+ 
++    // [Rocca patch] Trigger an OS BiometricPrompt before signing the
++    // assertion. Falls back to device credential (PIN/pattern/password) if
++    // biometrics are unavailable but a screen lock is set. If neither is
++    // available, fail closed — refuse to claim user-verified.
++    private fun runBiometricGate() {
++        val biometricManager = BiometricManager.from(this)
++        val allowed = BiometricManager.Authenticators.BIOMETRIC_STRONG or
++                BiometricManager.Authenticators.DEVICE_CREDENTIAL
++        val canAuth = biometricManager.canAuthenticate(allowed)
++        if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
++            Log.w(TAG, "Biometric/device-credential not available (canAuth=$canAuth) — refusing assertion")
++            setResult(Activity.RESULT_CANCELED)
++            finish()
++            return
++        }
++
++        val executor = ContextCompat.getMainExecutor(this)
++        val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
++            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
++                handleAssertion()
++            }
++
++            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
++                Log.w(TAG, "Biometric auth error $errorCode: $errString")
++                setResult(Activity.RESULT_CANCELED)
++                finish()
++            }
++
++            override fun onAuthenticationFailed() {
++                // No-op — let the user retry within the same prompt.
++            }
++        })
++
++        val info = BiometricPrompt.PromptInfo.Builder()
++            .setTitle("Verify your identity")
++            .setSubtitle("Sign in to $displayOrigin")
++            .setAllowedAuthenticators(allowed)
++            .build()
++
++        prompt.authenticate(info)
++    }
++
+     @SuppressLint("RestrictedApi")
+     private fun handleAssertion() {
+         try {
