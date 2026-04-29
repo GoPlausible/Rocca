@@ -19,6 +19,7 @@ import { useStore } from '@tanstack/react-store';
 import { messagesStore, Message } from '@/stores/messages';
 import { useConnection } from '@/hooks/useConnection';
 import { SigningRequestModal } from '@/dialogs/SigningRequestModal';
+import { BackChip } from '@/components/BackChip';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -128,16 +129,7 @@ export default function ChatScreen() {
             </View>
           ),
           headerShown: true,
-          headerLeft: () => (
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={styles.backChip}
-              hitSlop={6}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name="chevron-left" size={26} color="#3B82F6" />
-            </TouchableOpacity>
-          ),
+          headerLeft: () => <BackChip />,
           headerRight: () => (
             <View style={styles.headerRightBadge}>
               {isHeartbeatVisible && isConnected && (
@@ -229,15 +221,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#0F172A',
-  },
-  backChip: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
   },
   headerRightBadge: {
     flexDirection: 'row',

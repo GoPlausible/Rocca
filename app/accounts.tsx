@@ -5,6 +5,7 @@ import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useProvider } from '@/hooks/useProvider';
+import { BackChip } from '@/components/BackChip';
 
 export default function AccountsScreen() {
   const router = useRouter();
@@ -16,11 +17,7 @@ export default function AccountsScreen() {
         options={{
           title: 'Accounts',
           headerShown: true,
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 10 }}>
-              <MaterialIcons name="arrow-back" size={24} color="#3B82F6" />
-            </TouchableOpacity>
-          ),
+          headerLeft: () => <BackChip />,
         }}
       />
       <ScrollView contentContainerStyle={styles.content}>

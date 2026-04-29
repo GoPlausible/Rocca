@@ -6,6 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { encodeAddress } from '@algorandfoundation/keystore';
 import { useProvider } from '@/hooks/useProvider';
+import { BackChip } from '@/components/BackChip';
 
 export default function AccountDetailsScreen() {
   const router = useRouter();
@@ -33,11 +34,7 @@ export default function AccountDetailsScreen() {
         options={{
           title: 'Account',
           headerShown: true,
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 10 }}>
-              <MaterialIcons name="arrow-back" size={24} color="#3B82F6" />
-            </TouchableOpacity>
-          ),
+          headerLeft: () => <BackChip />,
         }}
       />
       <ScrollView contentContainerStyle={styles.content}>

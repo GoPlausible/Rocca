@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useProvider } from '@/hooks/useProvider';
 import { Modal } from '@/components/Modal';
 import { EmojiPickerModal } from '@/components/EmojiPickerModal';
+import { BackChip } from '@/components/BackChip';
 import {
   removeSession,
   renameSession,
@@ -95,11 +96,7 @@ export default function ConnectionsScreen() {
         options={{
           title: 'Connections',
           headerShown: true,
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 10 }}>
-              <MaterialIcons name="arrow-back" size={24} color="#3B82F6" />
-            </TouchableOpacity>
-          ),
+          headerLeft: () => <BackChip />,
         }}
       />
       <ScrollView contentContainerStyle={styles.content}>
