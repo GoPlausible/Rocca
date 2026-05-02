@@ -161,12 +161,13 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         id: `res-${Date.now()}`,
         thid: req.id,
         from: addressRef.current ?? algoAddress,
-        created_time: Date.now(),
+        // Unix seconds per ac2.md Plan Message Structure (DIDComm v2 §3.2).
+        created_time: Math.floor(Date.now() / 1000),
         body: {
           signature: signatureB64,
-          publicKey: publicKeyB64,
+          public_key: publicKeyB64,
           address: algoAddress,
-          keyType: req.keyType,
+          key_type: req.keyType,
         },
       });
       setPendingSigningRequest(null);
