@@ -115,6 +115,21 @@ To further integrate with identity primitives, the following extensions are sugg
 
 ## Getting Started
 
+> [!IMPORTANT]
+> When this Rocca is checked out as a submodule of the [ac2-sdk](https://github.com/GoPlausible/ac2-sdk) repo, **build it from the parent repo, not from here.** The parent repo owns the orchestration scripts and resolves the AC2 SDK / Liquid Auth deps for you.
+>
+> From `ac2-sdk/` root:
+>
+> ```bash
+> npm run rocca:install      # install Rocca's deps
+> npm run rocca:prebuild     # regenerates android/ + writes android/local.properties
+> npm run rocca:build:apk    # release APK
+> ```
+>
+> See the [parent README's "Building Rocca" section](../../README.md#building-rocca-android-apk) for the full lifecycle (clean / incremental / full-reset flows + the `local.properties` story).
+
+### Standalone (clone of just this repo)
+
 1. Install dependencies
 
    ```bash
@@ -131,3 +146,11 @@ To further integrate with identity primitives, the following extensions are sugg
 > ```bash
 > npm run android
 > ```
+>
+> If gradle complains *"SDK location not found"*, create `android/local.properties` with one line:
+>
+> ```
+> sdk.dir=/path/to/your/Android/sdk
+> ```
+>
+> (Default on macOS: `$HOME/Library/Android/sdk`.) The file is gitignored and gets wiped on every `expo prebuild --clean`.

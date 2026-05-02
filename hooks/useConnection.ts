@@ -627,14 +627,9 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           console.log('Session validation failed (ignored for debugging)');
         }
 
-        const client = new SignalClient(origin);
-        if (!active) return;
-
-        clientRef.current = client;
-        //@ts-ignore
-        client.authenticated = true;
-
-        const datachannel = await client.peer(requestId, 'answer', {
+        const PEER_TIMEOUT_MS = 10_000;
+        const MAX_PEER_ATTEMPTS = 3;
+        const iceConfig = {
           iceServers: [
             {
               urls: ['stun:geo.turn.algonode.xyz:80', 'stun:global.turn.nodely.io:443'],
@@ -648,7 +643,68 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
               credential: 'sqmcP4MiTKMT4TGEDSk9jgHY',
             },
           ],
-        });
+        };
+
+        let client = new SignalClient(origin);
+        if (!active) return;
+
+        clientRef.current = client;
+        //@ts-ignore
+        client.authenticated = true;
+
+        // First-signin retry. Liquid Auth's `client.peer('answer', …)` awaits
+        // `signal()` which has no built-in timeout; if the agent's listener
+        // is in a backoff gap (no plugin WS in the DO room), Rocca's offer
+        // is broadcast to nobody and we hang forever. Retry up to 3× with a
+        // fresh SignalClient so the agent's next listening window catches us.
+        // Server-side FIDO2 (broadcastAuthEvent) already fired and the
+        // wallet is authenticated for this requestId, so we don't redo it —
+        // a fresh SignalClient just opens a new WS, sends a fresh
+        // offer-description, and the DO routes it.
+        let datachannel: RTCDataChannel | null = null;
+        let lastErr: unknown = null;
+        for (let attempt = 1; attempt <= MAX_PEER_ATTEMPTS; attempt++) {
+          if (!active) return;
+          try {
+            datachannel = await Promise.race([
+              client.peer(requestId, 'answer', iceConfig),
+              new Promise<RTCDataChannel>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`peer timeout after ${PEER_TIMEOUT_MS}ms`)),
+                  PEER_TIMEOUT_MS,
+                ),
+              ),
+            ]);
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (attempt === MAX_PEER_ATTEMPTS) break;
+            console.log(
+              `[useConnection] peer attempt ${attempt}/${MAX_PEER_ATTEMPTS} failed (${(err as Error).message}); retrying with fresh SignalClient`,
+            );
+            // Tear down the failed client so its WS leaves the DO room and
+            // doesn't compete with the next attempt. Best-effort.
+            try {
+              client.peerClient?.close();
+            } catch {
+              /* ignored */
+            }
+            try {
+              client.close(true);
+            } catch {
+              /* ignored */
+            }
+            client = new SignalClient(origin);
+            clientRef.current = client;
+            //@ts-ignore
+            client.authenticated = true;
+          }
+        }
+        if (!datachannel) {
+          throw lastErr instanceof Error
+            ? lastErr
+            : new Error('peer failed after retries');
+        }
 
         if (!active) {
           client.close();
