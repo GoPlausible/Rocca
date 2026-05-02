@@ -8,6 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { DidDocumentModal } from '@/dialogs/DidDocumentModal';
 import { EmojiPickerModal } from '@/components/EmojiPickerModal';
+import { WelcomeModal } from '@/components/WelcomeModal';
 import { useProvider } from '@/hooks/useProvider';
 import {
   preferencesStore,
@@ -262,6 +263,8 @@ export default function LandingScreen() {
         onClose={() => setAvatarPickerOpen(false)}
         onSelect={(emoji) => setUserAvatarEmoji(emoji)}
       />
+
+      <WelcomeModal />
     </SafeAreaView>
   );
 }

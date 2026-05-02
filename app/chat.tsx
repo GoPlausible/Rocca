@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   FlatList,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import Animated, {
   useAnimatedKeyboard,
@@ -15,6 +16,7 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useStore } from '@tanstack/react-store';
 import { messagesStore, Message } from '@/stores/messages';
 import { useConnection } from '@/hooks/useConnection';
@@ -146,18 +148,43 @@ export default function ChatScreen() {
       />
 
       <Animated.View style={[{ flex: 1 }, containerAnimStyle]}>
-        <FlatList
-          ref={flatListRef}
-          style={{ flex: 1 }}
-          data={messages}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messageList}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        />
+        <View style={styles.messageArea}>
+          <FlatList
+            ref={flatListRef}
+            style={{ flex: 1 }}
+            data={messages}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.messageList}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          />
+
+          {/* Frosted overlay covers the messages while the secure channel is
+              still being negotiated (Liquid Auth → WebRTC handshake → first
+              healthy ICE state). Lifted as soon as `isConnected` flips true. */}
+          {!isConnected && (
+            <BlurView
+              intensity={32}
+              tint="light"
+              experimentalBlurMethod="dimezisBlurView"
+              style={StyleSheet.absoluteFill}
+            >
+              <View style={styles.connectingOverlay}>
+                <View style={styles.connectingCard}>
+                  <ActivityIndicator size="small" color="#3B82F6" />
+                  <Text style={styles.connectingTitle}>Connecting securely…</Text>
+                  <Text style={styles.connectingSubtitle}>
+                    Establishing the encrypted channel. Messages appear once
+                    the connection is online.
+                  </Text>
+                </View>
+              </View>
+            </BlurView>
+          )}
+        </View>
 
         <Animated.View
           style={[styles.inputContainer, inputContainerAnimStyle]}
@@ -195,6 +222,44 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+  },
+  messageArea: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  connectingOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    backgroundColor: 'rgba(248, 250, 252, 0.35)',
+  },
+  connectingCard: {
+    paddingVertical: 18,
+    paddingHorizontal: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    borderRadius: 18,
+    alignItems: 'center',
+    maxWidth: 320,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  connectingTitle: {
+    marginTop: 10,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  connectingSubtitle: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#475569',
+    textAlign: 'center',
   },
   headerTitle: {
     flexDirection: 'row',
