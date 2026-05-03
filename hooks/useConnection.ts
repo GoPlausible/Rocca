@@ -16,6 +16,7 @@ import { accountsStore } from '@/stores/accounts';
 import { passkeysStore } from '@/stores/passkeys';
 import { useProvider } from '@/hooks/useProvider';
 import { addMessage } from '@/stores/messages';
+import { appendLog, type LogLevel } from '@/stores/logs';
 import {
   sessionsStore,
   addSession,
@@ -55,6 +56,19 @@ export type ConnectionStatus =
 
 export type DisconnectReason = 'idle' | 'network' | 'unknown';
 
+/**
+ * Transient banner shown at the top of the chat for warn/info notices.
+ * Errors are not surfaced via banner — they go straight to the logs view
+ * and the unread-error count on the status pill.
+ */
+export interface NoticeBanner {
+  /** Used as React key — survives re-renders if the same notice persists. */
+  id: string;
+  level: 'warn' | 'info';
+  code: string;
+  message: string;
+}
+
 interface UseConnectionResult {
   session: Session | undefined;
   address: string | null;
@@ -69,6 +83,14 @@ interface UseConnectionResult {
   disconnectReason: DisconnectReason | null;
   /** User-action recovery from `disconnected` → fresh `connecting`. */
   triggerReconnect: (reason?: DisconnectReason) => void;
+  /** Count of `ac2/Notice` errors received since the user last viewed the logs. */
+  unreadErrorCount: number;
+  /** Resets the unread badge — call when the user opens the logs view. */
+  markLogsRead: () => void;
+  /** Most recent transient banner notice (warn/info), null when nothing showing. */
+  noticeBanner: NoticeBanner | null;
+  /** Dismisses the current banner (manual or via auto-dismiss timer). */
+  dismissNoticeBanner: () => void;
   lastHeartbeat: number;
   reset: () => void;
   pendingSigningRequest: PendingSigningRequest | null;
@@ -96,6 +118,32 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   const [error, setError] = useState<Error | null>(null);
   const [pendingSigningRequest, setPendingSigningRequest] =
     useState<PendingSigningRequest | null>(null);
+  const [unreadErrorCount, setUnreadErrorCount] = useState(0);
+  const [noticeBanner, setNoticeBanner] = useState<NoticeBanner | null>(null);
+  const noticeBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markLogsRead = useCallback(() => {
+    setUnreadErrorCount(0);
+  }, []);
+
+  const dismissNoticeBanner = useCallback(() => {
+    if (noticeBannerTimerRef.current) {
+      clearTimeout(noticeBannerTimerRef.current);
+      noticeBannerTimerRef.current = null;
+    }
+    setNoticeBanner(null);
+  }, []);
+
+  // Always clear pending banner timers on unmount — leaks would call
+  // setState on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (noticeBannerTimerRef.current) {
+        clearTimeout(noticeBannerTimerRef.current);
+        noticeBannerTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const clientRef = useRef<SignalClient | null>(null);
@@ -146,6 +194,18 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       console.log(
         `[useConnection] triggerReconnect (reason=${reason}, fromStatus=${status})`,
       );
+      appendLog(origin, requestId, {
+        ts: Date.now(),
+        level: 'info',
+        code:
+          status === 'disconnected'
+            ? 'connection.user_retry'
+            : 'connection.reconnecting',
+        message:
+          status === 'disconnected'
+            ? `User tapped Retry — re-arming the connection (reason=${reason})`
+            : `Death signal received (reason=${reason}); attempting silent reconnect`,
+      });
       // From `connected` → silent reconnect (status: reconnecting → blur
       // overlay re-arms, no dialog).
       // From `disconnected` → user pressed Retry in the dialog → fresh
@@ -159,7 +219,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       }
       setAttemptId((n) => n + 1);
     },
-    [],
+    [origin, requestId],
   );
 
   const sendOnDataChannel = useCallback(
@@ -345,6 +405,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             `[useConnection] inbound watchdog: ${Math.round(idleMs / 1000)}s of silence — declaring channel dead`,
           );
           if (connectionStatusRef.current === 'connected') {
+            appendLog(origin, requestId, {
+              ts: Date.now(),
+              level: 'warn',
+              code: 'connection.inbound_stalled',
+              message: `No inbound traffic for ${Math.round(idleMs / 1000)}s (heartbeats included)`,
+            });
             triggerReconnect('network');
           }
         }
@@ -365,8 +431,15 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             console.log(
               `[useConnection] bufferedAmount stalled at ${ch.bufferedAmount} bytes for >10s — declaring dead`,
             );
+            const stalledBytes = ch.bufferedAmount;
             highWaterFirstSeenAt = 0;
             if (connectionStatusRef.current === 'connected') {
+              appendLog(origin, requestId, {
+                ts: Date.now(),
+                level: 'warn',
+                code: 'connection.buffered_stalled',
+                message: `Send queue stuck at ${Math.round(stalledBytes / 1024)} KB for >10s — transport not draining`,
+              });
               triggerReconnect('network');
             }
           }
@@ -384,6 +457,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             dataChannelRef.current.close();
           }
           if (active) {
+            appendLog(origin, requestId, {
+              ts: Date.now(),
+              level: 'warn',
+              code: 'connection.idle_timeout',
+              message: 'Closed after 30 minutes of inactivity. Tap Retry to resume.',
+            });
             // Inactivity is intentional, not a network failure — skip the
             // silent retry loop, go straight to the disconnected state so
             // the dialog surfaces with the idle reason. User clicks Retry
@@ -897,6 +976,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             setIsLoading(false);
             lastInboundAtRef.current = Date.now();
             updateSessionStatus(requestId, origin, 'active');
+            appendLog(origin, requestId, {
+              ts: Date.now(),
+              level: 'info',
+              code: 'connection.opened',
+              message: 'Secure channel established',
+            });
           }
         };
 
@@ -919,6 +1004,55 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           if (raw.startsWith('{')) {
             try {
               const parsed = JSON.parse(raw);
+              // ac2/Notice — agent-side status info (errors, warns, infos).
+              // All levels persist to per-connection logs (5 MB cap with FIFO
+              // rotation in stores/logs.ts). Errors increment the unread
+              // badge on the status pill; warn/info show as transient
+              // banners (8s/4s) at the top of the chat.
+              if (parsed && parsed.type === 'ac2/Notice' && parsed.body) {
+                const level = parsed.body.level;
+                const code =
+                  typeof parsed.body.code === 'string' ? parsed.body.code : '';
+                const message =
+                  typeof parsed.body.message === 'string' ? parsed.body.message : '';
+                const retryAfterMsRaw = parsed.body.retry_after_ms;
+                const retryAfterMs =
+                  typeof retryAfterMsRaw === 'number' && retryAfterMsRaw >= 0
+                    ? retryAfterMsRaw
+                    : undefined;
+                if (
+                  (level === 'error' || level === 'warn' || level === 'info') &&
+                  code &&
+                  message
+                ) {
+                  appendLog(origin, requestId, {
+                    ts: Date.now(),
+                    level: level as LogLevel,
+                    code,
+                    message,
+                    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+                  });
+                  if (level === 'error') {
+                    setUnreadErrorCount((n) => n + 1);
+                  } else {
+                    // warn / info → transient banner, auto-dismiss after
+                    // 8s (warn) or 4s (info). New banner replaces any
+                    // pending one — last error wins.
+                    if (noticeBannerTimerRef.current) {
+                      clearTimeout(noticeBannerTimerRef.current);
+                      noticeBannerTimerRef.current = null;
+                    }
+                    const id = typeof parsed.id === 'string' ? parsed.id : `n-${Date.now()}`;
+                    setNoticeBanner({ id, level, code, message });
+                    const dismissAfter = level === 'warn' ? 8_000 : 4_000;
+                    noticeBannerTimerRef.current = setTimeout(() => {
+                      noticeBannerTimerRef.current = null;
+                      setNoticeBanner(null);
+                    }, dismissAfter);
+                  }
+                }
+                return;
+              }
               if (parsed && parsed.type === 'ac2/SigningRequest' && parsed.body) {
                 const id =
                   typeof parsed.id === 'string'
@@ -995,14 +1129,30 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             const s = peerClient.iceConnectionState;
             if (s === 'failed' || s === 'closed') {
               console.log(`[useConnection] iceConnectionState=${s} — declaring dead`);
-              if (active) triggerReconnect('network');
+              if (active) {
+                appendLog(origin, requestId, {
+                  ts: Date.now(),
+                  level: 'warn',
+                  code: `connection.ice_${s}`,
+                  message: `ICE connection state went to ${s}`,
+                });
+                triggerReconnect('network');
+              }
             }
           };
           peerClient.onconnectionstatechange = () => {
             const s = peerClient.connectionState;
             if (s === 'failed' || s === 'closed') {
               console.log(`[useConnection] connectionState=${s} — declaring dead`);
-              if (active) triggerReconnect('network');
+              if (active) {
+                appendLog(origin, requestId, {
+                  ts: Date.now(),
+                  level: 'warn',
+                  code: `connection.peer_${s}`,
+                  message: `Peer connection state went to ${s}`,
+                });
+                triggerReconnect('network');
+              }
             }
           };
         }
@@ -1013,6 +1163,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         if (active) {
           setError(err);
           setIsLoading(false);
+          appendLog(origin, requestId, {
+            ts: Date.now(),
+            level: 'error',
+            code: 'connection.lost',
+            message: `Reconnect attempts exhausted: ${err?.message ?? 'unknown error'}`,
+          });
           // Hard-fail: silent retries inside `client.peer()` are exhausted.
           // Surface the dialog. The user picks Retry (re-runs setup) or
           // Exit (router.back from chat.tsx).
@@ -1064,5 +1220,9 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
     pendingSigningRequest,
     approveSigningRequest,
     rejectSigningRequest,
+    unreadErrorCount,
+    markLogsRead,
+    noticeBanner,
+    dismissNoticeBanner,
   };
 }

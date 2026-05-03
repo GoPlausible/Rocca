@@ -8,6 +8,7 @@ import {
   FlatList,
   Platform,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import Animated, {
   useAnimatedKeyboard,
@@ -23,6 +24,7 @@ import { useConnection } from '@/hooks/useConnection';
 import { SigningRequestModal } from '@/dialogs/SigningRequestModal';
 import { BackChip } from '@/components/BackChip';
 import { MarkdownMessage } from '@/components/MarkdownMessage';
+import { ConnectionLogsView } from '@/components/ConnectionLogsView';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -50,10 +52,37 @@ export default function ChatScreen() {
     pendingSigningRequest,
     approveSigningRequest,
     rejectSigningRequest,
+    unreadErrorCount,
+    markLogsRead,
+    noticeBanner,
+    dismissNoticeBanner,
   } = useConnection(params.origin || '', params.requestId || '');
 
   const isReconnecting = connectionStatus === 'reconnecting';
   const isDisconnected = connectionStatus === 'disconnected';
+
+  // In-place view swap. Tapping the status pill flips this to 'logs' —
+  // the chat connection stays alive (no router navigation), only the
+  // body content swaps between the messages FlatList and the per-
+  // connection logs view. Back-chip/back-button restore 'chat'.
+  const [viewMode, setViewMode] = useState<'chat' | 'logs'>('chat');
+
+  // Android hardware back: when in logs mode, intercept and flip back to
+  // chat instead of letting the router pop the screen (which would tear
+  // down the connection).
+  useEffect(() => {
+    if (viewMode !== 'logs') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setViewMode('chat');
+      return true;
+    });
+    return () => sub.remove();
+  }, [viewMode]);
+
+  const openLogsView = () => {
+    markLogsRead();
+    setViewMode('logs');
+  };
 
   const channelName =
     (session?.name && session.name.trim()) || params.origin || 'Chat';
@@ -118,55 +147,132 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <Stack.Screen
         options={{
-          headerTitle: () => (
-            <View style={styles.headerTitle}>
-              <View style={styles.headerAvatar}>
-                {channelAvatar ? (
-                  <Text style={styles.headerAvatarEmoji}>{channelAvatar}</Text>
-                ) : (
-                  <MaterialIcons name="link" size={18} color="#3B82F6" />
-                )}
+          headerTitle: () =>
+            viewMode === 'logs' ? (
+              <View style={styles.headerTitle}>
+                <View style={styles.headerAvatar}>
+                  <MaterialIcons name="receipt-long" size={18} color="#3B82F6" />
+                </View>
+                <Text style={styles.headerTitleText} numberOfLines={1}>
+                  Connection logs
+                </Text>
               </View>
-              <Text style={styles.headerTitleText} numberOfLines={1}>
-                {channelName}
-              </Text>
-            </View>
-          ),
+            ) : (
+              <View style={styles.headerTitle}>
+                <View style={styles.headerAvatar}>
+                  {channelAvatar ? (
+                    <Text style={styles.headerAvatarEmoji}>{channelAvatar}</Text>
+                  ) : (
+                    <MaterialIcons name="link" size={18} color="#3B82F6" />
+                  )}
+                </View>
+                <Text style={styles.headerTitleText} numberOfLines={1}>
+                  {channelName}
+                </Text>
+              </View>
+            ),
           headerShown: true,
-          headerLeft: () => <BackChip />,
-          headerRight: () => (
-            <View style={styles.headerRightBadge}>
-              {isHeartbeatVisible && isConnected && (
-                <MaterialIcons
-                  name="favorite"
-                  size={12}
-                  color="#10B981"
-                  style={{ marginRight: 6 }}
-                />
-              )}
-              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-              <Text style={[styles.statusText, { color: statusColor }]}>
-                {isConnected ? 'Online' : 'Offline'}
-              </Text>
-            </View>
-          ),
+          // In logs mode, BackChip flips back to the chat view in-place —
+          // does NOT pop the screen, so the connection stays alive.
+          headerLeft: () =>
+            viewMode === 'logs' ? (
+              <BackChip onPress={() => setViewMode('chat')} />
+            ) : (
+              <BackChip />
+            ),
+          headerRight: () =>
+            viewMode === 'logs' ? null : (
+              <TouchableOpacity
+                style={styles.headerRightBadge}
+                onPress={openLogsView}
+                hitSlop={6}
+                activeOpacity={0.75}
+              >
+                {isHeartbeatVisible && isConnected && (
+                  <MaterialIcons
+                    name="favorite"
+                    size={12}
+                    color="#10B981"
+                    style={{ marginRight: 6 }}
+                  />
+                )}
+                <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                <Text style={[styles.statusText, { color: statusColor }]}>
+                  {isConnected ? 'Online' : 'Offline'}
+                </Text>
+                {unreadErrorCount > 0 ? (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadBadgeText}>
+                      {unreadErrorCount > 99 ? '99+' : unreadErrorCount}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            ),
         }}
       />
 
       <Animated.View style={[{ flex: 1 }, containerAnimStyle]}>
         <View style={styles.messageArea}>
-          <FlatList
-            ref={flatListRef}
-            style={{ flex: 1 }}
-            data={messages}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.messageList}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          />
+          {viewMode === 'logs' ? (
+            <ConnectionLogsView
+              origin={params.origin || ''}
+              requestId={params.requestId || ''}
+            />
+          ) : (
+            <>
+              <FlatList
+                ref={flatListRef}
+                style={{ flex: 1 }}
+                data={messages}
+                renderItem={renderItem}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.messageList}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              />
+
+              {/* Transient banner for warn/info notices. Errors don't
+                  surface here — they bump the unread badge on the status
+                  pill and persist in the logs view. Auto-dismiss timer
+                  is owned by the hook. */}
+              {noticeBanner && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={dismissNoticeBanner}
+                  style={[
+                    styles.noticeBanner,
+                    noticeBanner.level === 'warn'
+                      ? styles.noticeBannerWarn
+                      : styles.noticeBannerInfo,
+                  ]}
+                >
+                  <MaterialIcons
+                    name={
+                      noticeBanner.level === 'warn'
+                        ? 'warning-amber'
+                        : 'info-outline'
+                    }
+                    size={16}
+                    color={noticeBanner.level === 'warn' ? '#92400E' : '#1E40AF'}
+                  />
+                  <Text
+                    style={[
+                      styles.noticeBannerText,
+                      noticeBanner.level === 'warn'
+                        ? styles.noticeBannerTextWarn
+                        : styles.noticeBannerTextInfo,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {noticeBanner.message}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
 
           {/* Frosted overlay covers the messages while the secure channel
               is still being negotiated (initial connect) or while the
@@ -252,28 +358,30 @@ export default function ChatScreen() {
           )}
         </View>
 
-        <Animated.View
-          style={[styles.inputContainer, inputContainerAnimStyle]}
-        >
-          <TextInput
-            style={styles.input}
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
-            placeholderTextColor="#94A3B8"
-            editable={isConnected}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!inputText.trim() || !isConnected) && styles.sendButtonDisabled,
-            ]}
-            onPress={handleSend}
-            disabled={!inputText.trim() || !isConnected}
+        {viewMode === 'chat' && (
+          <Animated.View
+            style={[styles.inputContainer, inputContainerAnimStyle]}
           >
-            <MaterialIcons name="send" size={24} color="white" />
-          </TouchableOpacity>
-        </Animated.View>
+            <TextInput
+              style={styles.input}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
+              placeholderTextColor="#94A3B8"
+              editable={isConnected}
+            />
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (!inputText.trim() || !isConnected) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSend}
+              disabled={!inputText.trim() || !isConnected}
+            >
+              <MaterialIcons name="send" size={24} color="white" />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
       </Animated.View>
       <SigningRequestModal
         request={pendingSigningRequest}
@@ -443,6 +551,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  unreadBadge: {
+    marginLeft: 6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  noticeBanner: {
+    position: 'absolute',
+    top: 8,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+  },
+  noticeBannerWarn: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FCD34D',
+  },
+  noticeBannerInfo: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+  noticeBannerText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  noticeBannerTextWarn: {
+    color: '#92400E',
+  },
+  noticeBannerTextInfo: {
+    color: '#1E40AF',
   },
   messageList: {
     padding: 16,

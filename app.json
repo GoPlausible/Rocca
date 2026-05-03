@@ -2,7 +2,7 @@
   "expo": {
     "name": "rocca",
     "slug": "rocca",
-    "version": "1.0.3",
+    "version": "1.0.7",
     "orientation": "portrait",
     "scheme": "rocca",
     "userInterfaceStyle": "automatic",
@@ -78,6 +78,10 @@
         "showPasskeys": true,
         "showIdentities": true,
         "showConnections": true
+      },
+      "ac2": {
+        "sdkVersion": "0.0.4",
+        "pluginVersion": "0.0.29"
       },
       "router": {},
       "eas": {

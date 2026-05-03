@@ -8,6 +8,25 @@ import {
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+
+// Pulled at runtime from `app.json` (expo.version). Bumping the app
+// version updates this automatically — single source of truth.
+const ROCCA_VERSION = Constants.expoConfig?.version ?? '';
+
+// Pinned target versions Rocca was built against. Updated manually in
+// `app.json` -> extra.ac2.* on every cut that re-targets a new SDK or
+// plugin (matches the version-bump rule). The plugin's own runtime
+// version (visible via `/ac2 version`) may differ if the gateway has a
+// newer compatible build deployed; that divergence is fine as long as
+// the wire format is compatible.
+interface AC2Versions {
+  sdkVersion?: string;
+  pluginVersion?: string;
+}
+const ac2Versions = (Constants.expoConfig?.extra?.ac2 as AC2Versions | undefined) ?? {};
+const AC2_SDK_VERSION = ac2Versions.sdkVersion ?? '';
+const AC2_PLUGIN_VERSION = ac2Versions.pluginVersion ?? '';
 
 // Module-level flag — flipped true after the modal first shows in this
 // process. Re-mounts of LandingScreen (e.g. navigating back from chat)
@@ -53,6 +72,18 @@ export function WelcomeModal(): React.JSX.Element | null {
               <MaterialIcons name="waving-hand" size={26} color="#3B82F6" />
             </View>
             <Text style={styles.title}>Rocca Wallet</Text>
+            {ROCCA_VERSION ? (
+              <View style={styles.versionPill}>
+                <Text style={styles.versionPillText}>v{ROCCA_VERSION}</Text>
+              </View>
+            ) : null}
+            {AC2_SDK_VERSION || AC2_PLUGIN_VERSION ? (
+              <Text style={styles.targetVersions}>
+                {AC2_SDK_VERSION ? `ac2-sdk ${AC2_SDK_VERSION}` : ''}
+                {AC2_SDK_VERSION && AC2_PLUGIN_VERSION ? ' · ' : ''}
+                {AC2_PLUGIN_VERSION ? `ac2-plugin ${AC2_PLUGIN_VERSION}` : ''}
+              </Text>
+            ) : null}
             <Text style={styles.subtitle}>
               by Algorand Foundation, enhanced by GoPlausible.
             </Text>
@@ -134,8 +165,31 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     letterSpacing: 0.2,
   },
+  versionPill: {
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    backgroundColor: '#E1EFFF',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  versionPillText: {
+    color: '#1D4ED8',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    fontFamily: 'monospace',
+  },
+  targetVersions: {
+    marginTop: 6,
+    fontSize: 10,
+    color: '#94A3B8',
+    fontFamily: 'monospace',
+    letterSpacing: 0.2,
+  },
   subtitle: {
-    marginTop: 4,
+    marginTop: 8,
     fontSize: 13,
     color: '#475569',
     textAlign: 'center',
