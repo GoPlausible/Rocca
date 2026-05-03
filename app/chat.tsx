@@ -41,6 +41,9 @@ export default function ChatScreen() {
   const {
     session,
     isConnected,
+    connectionStatus,
+    disconnectReason,
+    triggerReconnect,
     send,
     lastHeartbeat,
     address,
@@ -48,6 +51,9 @@ export default function ChatScreen() {
     approveSigningRequest,
     rejectSigningRequest,
   } = useConnection(params.origin || '', params.requestId || '');
+
+  const isReconnecting = connectionStatus === 'reconnecting';
+  const isDisconnected = connectionStatus === 'disconnected';
 
   const channelName =
     (session?.name && session.name.trim()) || params.origin || 'Chat';
@@ -162,10 +168,15 @@ export default function ChatScreen() {
             onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
 
-          {/* Frosted overlay covers the messages while the secure channel is
-              still being negotiated (Liquid Auth → WebRTC handshake → first
-              healthy ICE state). Lifted as soon as `isConnected` flips true. */}
-          {!isConnected && (
+          {/* Frosted overlay covers the messages while the secure channel
+              is still being negotiated (initial connect) or while the
+              resilience layer silently retries after a death signal
+              (reconnect). Lifted as soon as `isConnected` flips true.
+              When the resilience layer hard-fails, status flips to
+              `disconnected` and the dialog below takes over. */}
+          {(connectionStatus === 'connecting' ||
+            connectionStatus === 'reconnecting' ||
+            connectionStatus === 'idle') && (
             <BlurView
               intensity={32}
               tint="light"
@@ -175,11 +186,66 @@ export default function ChatScreen() {
               <View style={styles.connectingOverlay}>
                 <View style={styles.connectingCard}>
                   <ActivityIndicator size="small" color="#3B82F6" />
-                  <Text style={styles.connectingTitle}>Connecting securely…</Text>
-                  <Text style={styles.connectingSubtitle}>
-                    Establishing the encrypted channel. Messages appear once
-                    the connection is online.
+                  <Text style={styles.connectingTitle}>
+                    {isReconnecting ? 'Reconnecting…' : 'Connecting securely…'}
                   </Text>
+                  <Text style={styles.connectingSubtitle}>
+                    {isReconnecting
+                      ? 'The connection dropped. Recovering automatically — no action needed.'
+                      : 'Establishing the encrypted channel. Messages appear once the connection is online.'}
+                  </Text>
+                </View>
+              </View>
+            </BlurView>
+          )}
+
+          {/* Hard-failure dialog. Status reaches `disconnected` only after
+              auto-retries are exhausted (3×10s peer attempts) OR the user
+              hit the 30-min inactivity threshold. The blur stays underneath
+              (chat content remains illegible) so messages aren't readable
+              over a dead channel. */}
+          {isDisconnected && (
+            <BlurView
+              intensity={48}
+              tint="light"
+              experimentalBlurMethod="dimezisBlurView"
+              style={StyleSheet.absoluteFill}
+            >
+              <View style={styles.disconnectedOverlay}>
+                <View style={styles.disconnectedCard}>
+                  <View style={styles.disconnectedIcon}>
+                    <MaterialIcons
+                      name={disconnectReason === 'idle' ? 'hourglass-empty' : 'wifi-off'}
+                      size={28}
+                      color="#EF4444"
+                    />
+                  </View>
+                  <Text style={styles.disconnectedTitle}>
+                    {disconnectReason === 'idle'
+                      ? 'Chat paused'
+                      : 'Connection lost'}
+                  </Text>
+                  <Text style={styles.disconnectedSubtitle}>
+                    {disconnectReason === 'idle'
+                      ? 'The chat was idle for 30 minutes and the secure channel was closed. Tap Retry to sign back in and resume.'
+                      : 'Couldn’t reconnect automatically. Tap Retry to sign in again, or Exit to leave the chat.'}
+                  </Text>
+                  <View style={styles.disconnectedActions}>
+                    <TouchableOpacity
+                      style={[styles.disconnectedButton, styles.disconnectedExit]}
+                      activeOpacity={0.85}
+                      onPress={() => router.back()}
+                    >
+                      <Text style={styles.disconnectedExitText}>Exit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.disconnectedButton, styles.disconnectedRetry]}
+                      activeOpacity={0.85}
+                      onPress={() => triggerReconnect('network')}
+                    >
+                      <Text style={styles.disconnectedRetryText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             </BlurView>
@@ -260,6 +326,81 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: '#475569',
     textAlign: 'center',
+  },
+  disconnectedOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    backgroundColor: 'rgba(15, 23, 42, 0.18)',
+  },
+  disconnectedCard: {
+    width: '100%',
+    maxWidth: 360,
+    paddingVertical: 22,
+    paddingHorizontal: 22,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    alignItems: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  disconnectedIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FEF2F2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  disconnectedTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  disconnectedSubtitle: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#475569',
+    textAlign: 'center',
+  },
+  disconnectedActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+    width: '100%',
+  },
+  disconnectedButton: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  disconnectedExit: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  disconnectedExitText: {
+    color: '#64748B',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  disconnectedRetry: {
+    backgroundColor: '#3B82F6',
+  },
+  disconnectedRetryText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   headerTitle: {
     flexDirection: 'row',

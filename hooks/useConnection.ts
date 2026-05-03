@@ -34,6 +34,27 @@ export interface PendingSigningRequest {
   displayHint?: 'text' | 'json' | 'hex';
 }
 
+/**
+ * Lifecycle state machine for the chat's WebRTC connection.
+ *
+ *   idle → connecting → connected ⇄ reconnecting → connected | disconnected
+ *
+ * `reconnecting` is entered when any death signal fires while the channel
+ * was previously `connected`. After auto-retries are exhausted (3×10s peer
+ * attempts), the state moves to `disconnected` and the chat screen surfaces
+ * a Retry/Exit dialog. `disconnected` can also be entered directly when the
+ * 30-min inactivity timer trips — in that case there's no silent retry,
+ * the user explicitly opts back in via the dialog's Retry.
+ */
+export type ConnectionStatus =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected';
+
+export type DisconnectReason = 'idle' | 'network' | 'unknown';
+
 interface UseConnectionResult {
   session: Session | undefined;
   address: string | null;
@@ -42,6 +63,12 @@ interface UseConnectionResult {
   isError: boolean;
   isLoading: boolean;
   isConnected: boolean;
+  /** Full lifecycle state — preferred over `isConnected` for nuanced UI. */
+  connectionStatus: ConnectionStatus;
+  /** Why the channel transitioned to `disconnected` (for the dialog copy). */
+  disconnectReason: DisconnectReason | null;
+  /** User-action recovery from `disconnected` → fresh `connecting`. */
+  triggerReconnect: (reason?: DisconnectReason) => void;
   lastHeartbeat: number;
   reset: () => void;
   pendingSigningRequest: PendingSigningRequest | null;
@@ -53,7 +80,10 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   const router = useRouter();
   const { accounts, keys, key, passkey, sessions } = useProvider();
 
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const [disconnectReason, setDisconnectReason] = useState<DisconnectReason | null>(null);
+  const [attemptId, setAttemptId] = useState(0);
+  const isConnected = connectionStatus === 'connected';
   const [address, setAddress] = useState<string | null>(null);
   const addressRef = useRef<string | null>(null);
 
@@ -71,6 +101,13 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
   const clientRef = useRef<SignalClient | null>(null);
   const lastUserActivityRef = useRef<number>(Date.now());
   const authFlowInProgressRef = useRef<boolean>(false);
+  /** Updated on every inbound DataChannel frame (heartbeats included). */
+  const lastInboundAtRef = useRef<number>(Date.now());
+  /** Tracks the most recent connection-status change so refs see the latest. */
+  const connectionStatusRef = useRef<ConnectionStatus>('idle');
+  useEffect(() => {
+    connectionStatusRef.current = connectionStatus;
+  }, [connectionStatus]);
 
   const session = useStore(sessionsStore, (state) =>
     state.sessions.find((s) => s.id === requestId && s.origin === origin),
@@ -81,26 +118,77 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       dataChannelRef.current.close();
       dataChannelRef.current = null;
     }
-    setIsConnected(false);
+    setConnectionStatus('disconnected');
+    setDisconnectReason('unknown');
     setIsLoading(false);
     setError(null);
     updateSessionStatus(requestId, origin, 'closed');
   }, [requestId, origin]);
 
-  const sendOnDataChannel = useCallback((envelope: unknown) => {
-    const ch = dataChannelRef.current;
-    if (!ch || ch.readyState !== 'open') {
-      console.warn('AC2 protocol send skipped — channel not open');
-      return false;
-    }
-    try {
-      ch.send(JSON.stringify(envelope));
-      return true;
-    } catch (err) {
-      console.error('AC2 protocol send failed', err);
-      return false;
-    }
-  }, []);
+  /**
+   * Single entry point for reacting to ANY death signal (data-channel
+   * onclose/onerror, peer-connection state failure, inbound watchdog,
+   * bufferedAmount stall, send-side readyState guard). Decides whether to
+   * silently reconnect (status was `connected`) or escalate to the
+   * Retry/Exit dialog (after silent retries are exhausted).
+   *
+   * Idempotent — if already reconnecting / disconnected, no-op so we don't
+   * double-fire when multiple signals trip in the same tick.
+   */
+  const triggerReconnect = useCallback(
+    (reason: DisconnectReason = 'network') => {
+      const status = connectionStatusRef.current;
+      // No-op when an attempt is already in flight — many death signals can
+      // fire in the same tick and we don't want to multiply attempts.
+      if (status === 'reconnecting' || status === 'connecting') {
+        return;
+      }
+      console.log(
+        `[useConnection] triggerReconnect (reason=${reason}, fromStatus=${status})`,
+      );
+      // From `connected` → silent reconnect (status: reconnecting → blur
+      // overlay re-arms, no dialog).
+      // From `disconnected` → user pressed Retry in the dialog → fresh
+      // `connecting` so the regular blur overlay surfaces, not the dialog.
+      if (status === 'disconnected') {
+        setDisconnectReason(null);
+        setConnectionStatus('connecting');
+      } else {
+        setDisconnectReason(reason);
+        setConnectionStatus('reconnecting');
+      }
+      setAttemptId((n) => n + 1);
+    },
+    [],
+  );
+
+  const sendOnDataChannel = useCallback(
+    (envelope: unknown) => {
+      const ch = dataChannelRef.current;
+      if (!ch || ch.readyState !== 'open') {
+        console.warn(
+          `[useConnection] AC2 protocol send skipped — readyState=${ch?.readyState ?? 'none'}`,
+        );
+        // Pre-send guard: if the channel is gone but the hook still thinks
+        // it's connected, escalate so silent reconnect kicks in.
+        if (connectionStatusRef.current === 'connected') {
+          triggerReconnect('network');
+        }
+        return false;
+      }
+      try {
+        ch.send(JSON.stringify(envelope));
+        return true;
+      } catch (err) {
+        console.error('AC2 protocol send failed', err);
+        if (connectionStatusRef.current === 'connected') {
+          triggerReconnect('network');
+        }
+        return false;
+      }
+    },
+    [triggerReconnect],
+  );
 
   const rejectSigningRequest = useCallback(
     (reason?: string) => {
@@ -179,13 +267,23 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
   const send = useCallback(
     (text: string) => {
-      if (
-        text.trim() &&
-        dataChannelRef.current &&
-        dataChannelRef.current.readyState === 'open' &&
-        address
-      ) {
-        dataChannelRef.current.send(text.trim());
+      if (!text.trim() || !address) return;
+      const ch = dataChannelRef.current;
+      if (!ch || ch.readyState !== 'open') {
+        // The user typed and pressed send into a dead channel. Escalate
+        // immediately so the blur overlay re-arms and the message isn't
+        // silently swallowed. (Drop this send; the user can re-try once
+        // reconnect succeeds.)
+        console.log(
+          `[useConnection] send: readyState=${ch?.readyState ?? 'none'} — triggering reconnect`,
+        );
+        if (connectionStatusRef.current === 'connected') {
+          triggerReconnect('network');
+        }
+        return;
+      }
+      try {
+        ch.send(text.trim());
         addMessage({
           text: text.trim(),
           sender: 'me',
@@ -195,36 +293,103 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         });
         updateSessionActivity(requestId, origin);
         lastUserActivityRef.current = Date.now();
+      } catch (err) {
+        console.error('[useConnection] send threw:', err);
+        if (connectionStatusRef.current === 'connected') {
+          triggerReconnect('network');
+        }
       }
     },
-    [requestId, origin, address],
+    [requestId, origin, address, triggerReconnect],
   );
 
   useEffect(() => {
     let active = true;
     let heartbeatInterval: any = null;
     let inactivityInterval: any = null;
+    let inboundWatchdog: any = null;
+    let bufferedAmountWatchdog: any = null;
 
     if (isConnected) {
+      // 30s heartbeat — symmetric with the plugin side. Receiving side
+      // resets its inbound watchdog when the empty frame arrives.
       heartbeatInterval = setInterval(() => {
-        if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
-          console.log('Sending heartbeat message');
-          dataChannelRef.current.send('');
-          if (active) setLastHeartbeat(Date.now());
+        const ch = dataChannelRef.current;
+        if (!ch) return;
+        if (ch.readyState !== 'open') {
+          if (connectionStatusRef.current === 'connected') {
+            triggerReconnect('network');
+          }
+          return;
         }
-      }, 20000);
+        try {
+          ch.send('');
+          if (active) setLastHeartbeat(Date.now());
+        } catch (err) {
+          console.warn('[useConnection] heartbeat send failed:', err);
+          if (connectionStatusRef.current === 'connected') {
+            triggerReconnect('network');
+          }
+        }
+      }, 30_000);
+
+      // 90s inbound watchdog — silent-death detection. If we haven't
+      // received ANYTHING (heartbeat, message, signing) for 90s while the
+      // channel reports `open`, the underlying transport is gone (NAT
+      // rebind, mobile suspension, ICE consent freshness lag). Kick a
+      // silent reconnect.
+      inboundWatchdog = setInterval(() => {
+        const idleMs = Date.now() - lastInboundAtRef.current;
+        if (idleMs > 90_000) {
+          console.log(
+            `[useConnection] inbound watchdog: ${Math.round(idleMs / 1000)}s of silence — declaring channel dead`,
+          );
+          if (connectionStatusRef.current === 'connected') {
+            triggerReconnect('network');
+          }
+        }
+      }, 10_000);
+
+      // bufferedAmount watchdog — if the local send queue stays > 256 KB
+      // for 10s, the OS-level transport isn't draining (typical NAT-rebind
+      // signature). Faster signal than the inbound watchdog when we have
+      // outbound traffic.
+      let highWaterFirstSeenAt = 0;
+      bufferedAmountWatchdog = setInterval(() => {
+        const ch = dataChannelRef.current;
+        if (!ch || ch.readyState !== 'open') return;
+        if (ch.bufferedAmount > 256 * 1024) {
+          if (highWaterFirstSeenAt === 0) {
+            highWaterFirstSeenAt = Date.now();
+          } else if (Date.now() - highWaterFirstSeenAt > 10_000) {
+            console.log(
+              `[useConnection] bufferedAmount stalled at ${ch.bufferedAmount} bytes for >10s — declaring dead`,
+            );
+            highWaterFirstSeenAt = 0;
+            if (connectionStatusRef.current === 'connected') {
+              triggerReconnect('network');
+            }
+          }
+        } else {
+          highWaterFirstSeenAt = 0;
+        }
+      }, 2_000);
 
       inactivityInterval = setInterval(() => {
         const now = Date.now();
         const inactiveTime = now - lastUserActivityRef.current;
         if (inactiveTime >= 30 * 60 * 1000) {
-          console.log('Closing connection due to inactivity (30 minutes)');
+          console.log('[useConnection] closing connection due to inactivity (30 minutes)');
           if (dataChannelRef.current) {
             dataChannelRef.current.close();
           }
           if (active) {
-            setIsConnected(false);
-            router.back();
+            // Inactivity is intentional, not a network failure — skip the
+            // silent retry loop, go straight to the disconnected state so
+            // the dialog surfaces with the idle reason. User clicks Retry
+            // to reconnect when they actually want to use the chat again.
+            setDisconnectReason('idle');
+            setConnectionStatus('disconnected');
           }
         }
       }, 5000);
@@ -234,8 +399,10 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
       active = false;
       if (heartbeatInterval) clearInterval(heartbeatInterval);
       if (inactivityInterval) clearInterval(inactivityInterval);
+      if (inboundWatchdog) clearInterval(inboundWatchdog);
+      if (bufferedAmountWatchdog) clearInterval(bufferedAmountWatchdog);
     };
-  }, [isConnected, router]);
+  }, [isConnected, router, triggerReconnect]);
 
   useEffect(() => {
     let active = true;
@@ -261,13 +428,22 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         return;
       }
 
-      // If we are already connecting or connected, don't start again
+      // If we are already connecting or connected, don't start again. The
+      // reconnect path explicitly tears down clientRef in cleanup before
+      // bumping attemptId, so this guard is never tripped on a retry pass.
       if (clientRef.current || isConnected) {
         return;
       }
 
       setIsLoading(true);
       setError(null);
+      // Mark this as a fresh `connecting` attempt unless we're already in
+      // `reconnecting` mode (preserve the latter so the chat blur shows
+      // "Reconnecting…" rather than "Connecting securely…").
+      if (connectionStatusRef.current !== 'reconnecting') {
+        setConnectionStatus('connecting');
+      }
+      lastInboundAtRef.current = Date.now();
 
       try {
         const currentSessions = sessionsStore.state.sessions;
@@ -716,20 +892,27 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         datachannel.onopen = () => {
           console.log('Data channel opened');
           if (active) {
-            setIsConnected(true);
+            setConnectionStatus('connected');
+            setDisconnectReason(null);
             setIsLoading(false);
+            lastInboundAtRef.current = Date.now();
             updateSessionStatus(requestId, origin, 'active');
           }
         };
 
         datachannel.onmessage = (event) => {
           if (!active) return;
-          console.log('Received message:', event.data);
+          // Reset the inbound watchdog on every frame, including the empty
+          // 30s heartbeats from the agent. Done before parsing so failures
+          // below don't suppress the watchdog reset.
+          lastInboundAtRef.current = Date.now();
           updateSessionActivity(requestId, origin);
           lastUserActivityRef.current = Date.now();
           setLastHeartbeat(Date.now());
           const raw = typeof event.data === 'string' ? event.data.trim() : '';
+          // Empty heartbeat — already counted above, just exit.
           if (!raw) return;
+          console.log('Received message:', event.data);
 
           // Try AC2 protocol JSON first — SigningRequest pops the modal,
           // anything else falls through to the chat path.
@@ -791,14 +974,38 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           console.log('Data channel closed');
           updateSessionStatus(requestId, origin, 'closed');
           if (active) {
-            setIsConnected(false);
-            router.back();
+            // Don't bounce out — let the resilience layer try to recover
+            // silently. If the channel was already in `connected`, this
+            // flips us to `reconnecting` and re-runs setupConnection.
+            triggerReconnect('network');
           }
         };
 
         datachannel.onerror = (error) => {
           console.error('Data channel error:', error);
+          if (active) triggerReconnect('network');
         };
+
+        // Belt-and-suspenders peer-connection state listeners. Catches
+        // cases where the underlying ICE/DTLS layer fails before the data
+        // channel itself notices.
+        const peerClient = client.peerClient;
+        if (peerClient) {
+          peerClient.oniceconnectionstatechange = () => {
+            const s = peerClient.iceConnectionState;
+            if (s === 'failed' || s === 'closed') {
+              console.log(`[useConnection] iceConnectionState=${s} — declaring dead`);
+              if (active) triggerReconnect('network');
+            }
+          };
+          peerClient.onconnectionstatechange = () => {
+            const s = peerClient.connectionState;
+            if (s === 'failed' || s === 'closed') {
+              console.log(`[useConnection] connectionState=${s} — declaring dead`);
+              if (active) triggerReconnect('network');
+            }
+          };
+        }
       } catch (err: any) {
         console.error('Failed to setup connection:', err);
         clientRef.current = null;
@@ -806,11 +1013,11 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         if (active) {
           setError(err);
           setIsLoading(false);
-          Alert.alert(
-            'Connection Failed',
-            err.message || 'Failed to setup connection to the peer',
-            [{ text: 'OK', onPress: () => router.back() }],
-          );
+          // Hard-fail: silent retries inside `client.peer()` are exhausted.
+          // Surface the dialog. The user picks Retry (re-runs setup) or
+          // Exit (router.back from chat.tsx).
+          setDisconnectReason((prev) => prev ?? 'network');
+          setConnectionStatus('disconnected');
         }
       } finally {
         authFlowInProgressRef.current = false;
@@ -836,7 +1043,10 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         clientRef.current = null;
       }
     };
-  }, [origin, requestId, router, key, passkey, accounts.length > 0, keys.length > 0]);
+    // attemptId is in deps so triggerReconnect (which bumps it) re-runs the
+    // whole effect — cleanup tears down the failed transport, then setup
+    // does a fresh connection attempt with the same requestId.
+  }, [origin, requestId, attemptId, key, passkey, accounts.length > 0, keys.length > 0]);
 
   return {
     session,
@@ -846,6 +1056,9 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
     isError: !!error,
     isLoading,
     isConnected,
+    connectionStatus,
+    disconnectReason,
+    triggerReconnect,
     lastHeartbeat,
     reset,
     pendingSigningRequest,
