@@ -5,13 +5,16 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { encodeAddress } from '@algorandfoundation/keystore';
+import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
+import { labelsStore } from '@/stores/labels';
 
 export default function AccountDetailsScreen() {
   const router = useRouter();
   const { address } = useLocalSearchParams<{ address?: string }>();
   const { accounts, keys } = useProvider();
+  const labels = useStore(labelsStore, (s) => s.byKey);
 
   const account = accounts.find((a: any) => a.address === address);
   const keyId: string | undefined = account?.metadata?.keyId;
@@ -21,6 +24,7 @@ export default function AccountDetailsScreen() {
   const algorandAddress: string =
     key?.publicKey instanceof Uint8Array ? encodeAddress(key.publicKey) : '';
   const balance: string = account ? account.balance.toString() : '0';
+  const label = address ? labels[`accounts:${address}`] : undefined;
 
   const copy = async (label: string, value: string) => {
     if (!value) return;
@@ -32,7 +36,7 @@ export default function AccountDetailsScreen() {
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <Stack.Screen
         options={{
-          title: 'Account',
+          title: label?.name ?? 'Account',
           headerShown: true,
           headerLeft: () => <BackChip />,
         }}
@@ -44,8 +48,17 @@ export default function AccountDetailsScreen() {
           <>
             <View style={styles.heroCard}>
               <View style={styles.heroIcon}>
-                <MaterialIcons name="account-balance-wallet" size={28} color="#FFFFFF" />
+                {label?.avatar ? (
+                  <Text style={styles.heroAvatarEmoji}>{label.avatar}</Text>
+                ) : (
+                  <MaterialIcons name="account-balance-wallet" size={28} color="#FFFFFF" />
+                )}
               </View>
+              {label?.name ? (
+                <Text style={styles.heroName} numberOfLines={1}>
+                  {label.name}
+                </Text>
+              ) : null}
               <Text style={styles.heroLabel}>Balance</Text>
               <Text style={styles.heroValue}>${balance}</Text>
             </View>
@@ -124,6 +137,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  heroAvatarEmoji: {
+    fontSize: 30,
+  },
+  heroName: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+    letterSpacing: 0.2,
   },
   heroLabel: {
     color: 'rgba(255,255,255,0.8)',
