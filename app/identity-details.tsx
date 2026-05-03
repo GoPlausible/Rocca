@@ -14,6 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
+import { DidDocumentView } from '@/components/DidDocumentView';
 import { labelsStore } from '@/stores/labels';
 
 export default function IdentityDetailsScreen() {
@@ -39,6 +40,7 @@ export default function IdentityDetailsScreen() {
     identity?.didDocument !== undefined
       ? JSON.stringify(identity.didDocument, null, 2)
       : '';
+  const hasDidDocument = identity?.didDocument !== undefined;
   const metadataJson =
     identity?.metadata && Object.keys(identity.metadata).length > 0
       ? JSON.stringify(identity.metadata, null, 2)
@@ -110,12 +112,20 @@ export default function IdentityDetailsScreen() {
             ) : null}
             <DetailRow label="Type" value={identity.type || 'unknown'} />
 
-            {didDocumentJson ? (
-              <BlockRow
-                label="DID Document"
-                json={didDocumentJson}
-                onCopy={() => copy('DID Document', didDocumentJson)}
-              />
+            {hasDidDocument ? (
+              <View style={styles.row}>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.rowLabel}>DID Document</Text>
+                  <TouchableOpacity
+                    onPress={() => copy('DID Document', didDocumentJson)}
+                    hitSlop={12}
+                    style={styles.copyButton}
+                  >
+                    <MaterialIcons name="content-copy" size={20} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+                <DidDocumentView didDocument={identity.didDocument} />
+              </View>
             ) : null}
 
             {metadataJson ? (

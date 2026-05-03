@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { useStore } from '@tanstack/react-store';
 import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { DidDocumentModal } from '@/dialogs/DidDocumentModal';
 import { EmojiPickerModal } from '@/components/EmojiPickerModal';
 import { WelcomeModal } from '@/components/WelcomeModal';
 import { useProvider } from '@/hooks/useProvider';
@@ -33,7 +39,6 @@ export default function LandingScreen() {
   const router = useRouter();
   const { key, identity, account, identities, accounts, passkey, passkeys, sessions } =
     useProvider();
-  const [modalVisible, setModalVisible] = useState(false);
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const userAvatarEmoji = useStore(preferencesStore, (s) => s.userAvatarEmoji);
   const balanceHidden = useStore(preferencesStore, (s) => s.balanceHidden);
@@ -77,6 +82,27 @@ export default function LandingScreen() {
                 ? `${activeAccount.address.slice(0, 8)}...${activeAccount.address.replace('=', '').slice(-8)}`
                 : `${name} Wallet`}
             </Text>
+            {activeIdentity?.did ? (
+              <View style={styles.didLine}>
+                <Text
+                  style={styles.didLineText}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {activeIdentity.did}
+                </Text>
+                <TouchableOpacity
+                  hitSlop={10}
+                  onPress={async () => {
+                    if (!activeIdentity.did) return;
+                    await Clipboard.setStringAsync(activeIdentity.did);
+                    Alert.alert('Copied', 'DID copied to clipboard.');
+                  }}
+                >
+                  <MaterialIcons name="content-copy" size={14} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
           <TouchableOpacity style={styles.profileButton} onPress={() => router.push('/scan')}>
             <MaterialIcons name="qr-code-scanner" size={28} color={primaryColor} />
@@ -133,32 +159,6 @@ export default function LandingScreen() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Identity (DID)</Text>
-            <TouchableOpacity onPress={() => setModalVisible(true)}>
-              <Text style={[styles.seeAll, { color: primaryColor }]}>View Doc</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.didCard}>
-            <View style={styles.didInfo}>
-              <MaterialIcons name="verified" size={20} color={accentColor} />
-              <Text style={[styles.didText, { flex: 1 }]} numberOfLines={1} ellipsizeMode="middle">
-                {activeIdentity?.did || 'No identity found'}
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={async () => {
-                if (!activeIdentity?.did) return;
-                await Clipboard.setStringAsync(activeIdentity.did);
-                alert('DID copied!');
-              }}
-            >
-              <MaterialIcons name="content-copy" size={20} color="#64748B" />
-            </TouchableOpacity>
-          </View>
-        </View>
 
         {(showAccounts || showPasskeys || showIdentities || showConnections) && (
           <View style={styles.section}>
@@ -249,12 +249,6 @@ export default function LandingScreen() {
           <Text style={styles.resetButtonText}>Logout & Reset Onboarding</Text>
         </TouchableOpacity>
       </ScrollView>
-
-      <DidDocumentModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        didDocument={activeIdentity?.didDocument}
-      />
 
       <EmojiPickerModal
         visible={avatarPickerOpen}
@@ -385,31 +379,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
-  seeAll: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  didCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  didInfo: {
+  didLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
+    marginTop: 4,
+  },
+  didLineText: {
     flex: 1,
-  },
-  didText: {
-    color: '#334155',
+    fontSize: 11,
     fontFamily: 'monospace',
-    fontSize: 14,
-    fontWeight: '500',
+    color: '#64748B',
   },
   serviceGrid: {
     flexDirection: 'row',
