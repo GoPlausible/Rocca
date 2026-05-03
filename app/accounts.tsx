@@ -108,10 +108,11 @@ export default function AccountsScreen() {
           <View style={styles.list}>
             {accounts.map((account, index) => {
               const lbl = labelFor(account.address);
+              const isPrimary = isPrimaryAccount(account, keys as any);
               return (
                 <Swipeable
                   key={`${account.address}:${index}`}
-                  renderRightActions={renderRightActions(account)}
+                  renderRightActions={isPrimary ? undefined : renderRightActions(account)}
                   renderLeftActions={renderLeftActions(account)}
                   onSwipeableWillOpen={(_dir, swipeable) => {
                     if (openRowRef.current && openRowRef.current !== swipeable) {
@@ -159,9 +160,7 @@ export default function AccountsScreen() {
                         >
                           {lbl?.name ?? account.address}
                         </Text>
-                        {isPrimaryAccount(account, keys as any) ? (
-                          <PrimaryBadge variant="compact" />
-                        ) : null}
+                        {isPrimary ? <PrimaryBadge variant="compact" /> : null}
                       </View>
                       {lbl?.name ? (
                         <Text style={styles.subAddress} numberOfLines={1} ellipsizeMode="middle">

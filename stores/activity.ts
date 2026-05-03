@@ -51,8 +51,8 @@ export interface ActivityState {
 const STORAGE_KEY = 'activity';
 const storage = createMMKV({ id: 'activity' });
 
-/** Hard cap on stored entries (FIFO drop). 500 covers ~weeks of normal use. */
-const MAX_ENTRIES = 500;
+/** Hard byte cap (FIFO drop). 10 MB covers months of normal use. */
+const MAX_BYTES = 10 * 1024 * 1024;
 
 const loadInitial = (): ActivityState => {
   try {
@@ -79,9 +79,21 @@ activityStore.subscribe(() => {
   }
 });
 
+function bytesOf(entries: ActivityEntry[]): number {
+  return JSON.stringify(entries).length;
+}
+
+function rotate(entries: ActivityEntry[]): ActivityEntry[] {
+  let arr = entries;
+  while (arr.length > 1 && bytesOf(arr) > MAX_BYTES) {
+    arr = arr.slice(Math.max(1, Math.floor(arr.length * 0.1)));
+  }
+  return arr;
+}
+
 /**
  * Append an activity entry. `id` and `ts` are auto-set from now if absent.
- * Trims to MAX_ENTRIES with FIFO drop.
+ * Drops oldest entries FIFO until total bytes <= MAX_BYTES.
  */
 export function appendActivity(
   entry: Omit<ActivityEntry, 'id' | 'ts'> & Partial<Pick<ActivityEntry, 'id' | 'ts'>>,
@@ -89,13 +101,15 @@ export function appendActivity(
   const ts = entry.ts ?? Date.now();
   const id = entry.id ?? `act-${ts}-${Math.random().toString(36).slice(2, 8)}`;
   const next: ActivityEntry = { ...entry, id, ts };
-  activityStore.setState((s) => {
-    const all = [...s.entries, next];
-    const trimmed = all.length > MAX_ENTRIES ? all.slice(all.length - MAX_ENTRIES) : all;
-    return { entries: trimmed };
-  });
+  activityStore.setState((s) => ({ entries: rotate([...s.entries, next]) }));
 }
 
 export function clearActivity(): void {
   activityStore.setState(() => ({ entries: [] }));
 }
+
+export function getActivityBytes(): number {
+  return bytesOf(activityStore.state.entries);
+}
+
+export const ACTIVITY_MAX_BYTES = MAX_BYTES;

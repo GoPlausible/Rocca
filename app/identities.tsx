@@ -104,10 +104,11 @@ export default function IdentitiesScreen() {
           <View style={styles.list}>
             {identities.map((identity, index) => {
               const lbl = labelFor(identity);
+              const isPrimary = isPrimaryIdentity(identity, keys as any);
               return (
                 <Swipeable
                   key={`${identity.did ?? identity.address}:${index}`}
-                  renderRightActions={renderRightActions(identity)}
+                  renderRightActions={isPrimary ? undefined : renderRightActions(identity)}
                   renderLeftActions={renderLeftActions(identity)}
                   onSwipeableWillOpen={(_dir, swipeable) => {
                     if (openRowRef.current && openRowRef.current !== swipeable) {
@@ -151,9 +152,7 @@ export default function IdentitiesScreen() {
                         >
                           {lbl?.name ?? identity.did ?? identity.address}
                         </Text>
-                        {isPrimaryIdentity(identity, keys as any) ? (
-                          <PrimaryBadge variant="compact" />
-                        ) : null}
+                        {isPrimary ? <PrimaryBadge variant="compact" /> : null}
                       </View>
                       {lbl?.name ? (
                         <Text style={styles.subDid} numberOfLines={1} ellipsizeMode="middle">

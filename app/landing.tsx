@@ -300,6 +300,16 @@ export default function LandingScreen() {
                 );
               })
             )}
+            <TouchableOpacity
+              style={styles.viewAllRow}
+              activeOpacity={0.7}
+              onPress={() => router.push('/activity')}
+            >
+              <Text style={[styles.viewAllText, { color: primaryColor }]}>
+                View all activity
+              </Text>
+              <MaterialIcons name="chevron-right" size={18} color={primaryColor} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -596,5 +606,19 @@ const styles = StyleSheet.create({
   activityAmount: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  viewAllRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    marginTop: 4,
+    gap: 2,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
