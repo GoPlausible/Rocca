@@ -1,6 +1,6 @@
 {
   "name": "rocca",
-  "version": "1.0.7",
+  "version": "1.0.12",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {

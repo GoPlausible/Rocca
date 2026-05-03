@@ -17,6 +17,8 @@ import { passkeysStore } from '@/stores/passkeys';
 import { useProvider } from '@/hooks/useProvider';
 import { addMessage } from '@/stores/messages';
 import { appendLog, type LogLevel } from '@/stores/logs';
+import { appendActivity } from '@/stores/activity';
+import { appendSignature } from '@/stores/signatures';
 import {
   sessionsStore,
   addSession,
@@ -206,6 +208,18 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
             ? `User tapped Retry — re-arming the connection (reason=${reason})`
             : `Death signal received (reason=${reason}); attempting silent reconnect`,
       });
+      // Emit a single disconnected activity entry only when transitioning
+      // from `connected` (death signal). Skip for user-retry from
+      // `disconnected` — that's already an explicit user action without
+      // a fresh disconnect to record.
+      if (status === 'connected') {
+        appendActivity({
+          kind: 'connection.disconnected',
+          title: 'Connection lost',
+          subtitle: origin,
+          meta: { requestId, reason },
+        });
+      }
       // From `connected` → silent reconnect (status: reconnecting → blur
       // overlay re-arms, no dialog).
       // From `disconnected` → user pressed Retry in the dialog → fresh
@@ -254,6 +268,7 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
     (reason?: string) => {
       const req = pendingSigningRequest;
       if (!req) return;
+      const finalReason = reason ?? 'User rejected the signing request';
       sendOnDataChannel({
         '@context': ['https://ac2.io/v1'],
         type: 'ac2/SigningRejected',
@@ -261,11 +276,28 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
         thid: req.id,
         from: addressRef.current ?? 'unknown',
         created_time: Date.now(),
-        body: { reason: reason ?? 'User rejected the signing request' },
+        body: { reason: finalReason },
+      });
+      appendSignature({
+        id: req.id,
+        ts: Date.now(),
+        kind: 'ac2.signing_request',
+        status: 'rejected',
+        keyType: req.keyType,
+        origin,
+        description: req.description,
+        payloadBase64: req.payload,
+        reason: finalReason,
+      });
+      appendActivity({
+        kind: 'signing.rejected',
+        title: 'Signing rejected',
+        subtitle: req.description,
+        meta: { keyType: req.keyType, origin },
       });
       setPendingSigningRequest(null);
     },
-    [pendingSigningRequest, sendOnDataChannel],
+    [pendingSigningRequest, sendOnDataChannel, origin],
   );
 
   const approveSigningRequest = useCallback(async () => {
@@ -317,6 +349,24 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           address: algoAddress,
           key_type: req.keyType,
         },
+      });
+      appendSignature({
+        id: req.id,
+        ts: Date.now(),
+        kind: 'ac2.signing_request',
+        status: 'approved',
+        keyType: req.keyType,
+        origin,
+        description: req.description,
+        payloadBase64: req.payload,
+        signatureBase64: signatureB64,
+        address: algoAddress,
+      });
+      appendActivity({
+        kind: 'signing.approved',
+        title: 'Signing approved',
+        subtitle: req.description,
+        meta: { keyType: req.keyType, origin, address: algoAddress },
       });
       setPendingSigningRequest(null);
     } catch (err) {
@@ -633,14 +683,28 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
           const challenge = fromBase64Url(options.challenge);
 
+          const initialLiquidSig = await key.store.sign(foundKey.id, challenge);
+          const initialLiquidAddress = encodeAddress(foundKey?.publicKey!);
           const liquidOptions = {
             requestId,
             origin,
             type: 'algorand',
-            address: encodeAddress(foundKey?.publicKey!),
-            signature: toBase64URL(await key.store.sign(foundKey.id, challenge)),
+            address: initialLiquidAddress,
+            signature: toBase64URL(initialLiquidSig),
             device: 'Demo Web Wallet',
           };
+          appendSignature({
+            id: `liq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ts: Date.now(),
+            kind: 'liquid_auth.challenge',
+            status: 'approved',
+            keyType: 'account',
+            origin,
+            description: `Sign-in challenge for ${origin}`,
+            payloadBase64: toBase64URL(challenge),
+            signatureBase64: toBase64URL(initialLiquidSig),
+            address: initialLiquidAddress,
+          });
 
           const credential = (await navigator.credentials.get({
             publicKey: decodedOptions,
@@ -650,6 +714,40 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
           if (!credential) {
             throw new Error('Credential creation failed');
+          }
+
+          // Capture the WebAuthn passkey assertion signature itself (the
+          // P-256 sig the autofill activity produced over authenticatorData
+          // || sha256(clientDataJSON)). This is distinct from the Liquid
+          // Auth Ed25519 challenge sig above — both authorize the sign-in.
+          if (credential.response?.signature) {
+            try {
+              const wbSig =
+                credential.response.signature instanceof ArrayBuffer
+                  ? new Uint8Array(credential.response.signature)
+                  : credential.response.signature instanceof Uint8Array
+                    ? credential.response.signature
+                    : null;
+              if (wbSig) {
+                appendSignature({
+                  id: `wba-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  ts: Date.now(),
+                  kind: 'webauthn.assertion',
+                  status: 'approved',
+                  keyType: 'passkey',
+                  origin,
+                  description: `WebAuthn assertion for ${origin}`,
+                  // Payload here is the credential id — the actual signed
+                  // bytes (authenticatorData || sha256(clientDataJSON))
+                  // aren't reconstructed for storage; full audit needs
+                  // the server-side log.
+                  payloadBase64: typeof credential.id === 'string' ? credential.id : '',
+                  signatureBase64: toBase64URL(wbSig),
+                });
+              }
+            } catch (err) {
+              console.warn('Failed to capture WebAuthn assertion signature:', err);
+            }
           }
 
           let selectedAddress: string | null = null;
@@ -701,9 +799,20 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
 
             if (selectedKey) {
               console.log('Found key for selected address, re-signing challenge');
-              liquidOptions.signature = toBase64URL(
-                await key.store.sign(selectedKey.id, challenge),
-              );
+              const reSig = await key.store.sign(selectedKey.id, challenge);
+              liquidOptions.signature = toBase64URL(reSig);
+              appendSignature({
+                id: `liq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                ts: Date.now(),
+                kind: 'liquid_auth.challenge',
+                status: 'approved',
+                keyType: 'account',
+                origin,
+                description: `Sign-in challenge re-signed for ${selectedAddress}`,
+                payloadBase64: toBase64URL(challenge),
+                signatureBase64: toBase64URL(reSig),
+                address: selectedAddress,
+              });
             } else {
               console.warn('Could not find key for selected address', selectedAddress);
             }
@@ -775,14 +884,28 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
           const encodedAttestationOptions = await optionsResponse.json();
           const challenge = fromBase64Url(encodedAttestationOptions.challenge);
 
+          const attestSig = await key.store.sign(foundKey.id, challenge);
+          const attestAddress = encodeAddress(foundKey?.publicKey!);
           const liquidOptions = {
             requestId,
             origin: origin,
             type: 'algorand',
-            address: encodeAddress(foundKey?.publicKey!),
-            signature: toBase64URL(await key.store.sign(foundKey.id, challenge)),
+            address: attestAddress,
+            signature: toBase64URL(attestSig),
             device: 'Demo Web Wallet',
           };
+          appendSignature({
+            id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ts: Date.now(),
+            kind: 'liquid_auth.challenge',
+            status: 'approved',
+            keyType: 'account',
+            origin,
+            description: `Pairing attestation challenge for ${origin}`,
+            payloadBase64: toBase64URL(challenge),
+            signatureBase64: toBase64URL(attestSig),
+            address: attestAddress,
+          });
 
           const decodedPublicKey = {
             ...encodedAttestationOptions,
@@ -982,6 +1105,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
               code: 'connection.opened',
               message: 'Secure channel established',
             });
+            appendActivity({
+              kind: 'connection.connected',
+              title: 'Connection online',
+              subtitle: origin,
+              meta: { requestId },
+            });
           }
         };
 
@@ -1081,6 +1210,12 @@ export function useConnection(origin: string, requestId: string): UseConnectionR
                   payload,
                   keyType,
                   ...(displayHint !== undefined ? { displayHint } : {}),
+                });
+                appendActivity({
+                  kind: 'signing.received',
+                  title: 'Signing requested',
+                  subtitle: desc,
+                  meta: { keyType, origin },
                 });
                 return;
               }

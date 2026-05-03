@@ -23,6 +23,10 @@ import { globalPolyfill, setupNavigatorPolyfill } from '@/lib/polyfill';
 import ReactNativePasskeyAutofill from '@algorandfoundation/react-native-passkey-autofill';
 import { CredentialProviderService } from '@/lib/credentialProvider';
 import { PreventScreenshotProvider } from '@/providers/PreventScreenshotProvider';
+// Side-effect import: subscribes the activity store to source-of-truth
+// store deltas at module load. Logs account/identity/passkey/session
+// add+remove events into the recent-activity feed.
+import '@/lib/activity-watchers';
 import React from 'react';
 
 globalPolyfill();

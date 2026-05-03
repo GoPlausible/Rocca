@@ -16,6 +16,8 @@ import { useProvider } from '@/hooks/useProvider';
 import { Modal } from '@/components/Modal';
 import { EmojiPickerModal } from '@/components/EmojiPickerModal';
 import { BackChip } from '@/components/BackChip';
+import { useStore } from '@tanstack/react-store';
+import { messagesStore } from '@/stores/messages';
 import {
   removeSession,
   renameSession,
@@ -26,6 +28,17 @@ import {
 export default function ConnectionsScreen() {
   const router = useRouter();
   const { sessions } = useProvider();
+  // Aggregated message counts per session (origin + requestId). Indexed
+  // here at render time to avoid wiring counters into the messages store
+  // itself — cost is one O(N) pass per render of this screen.
+  const messageCountsByKey = useStore(messagesStore, (state) => {
+    const counts: Record<string, number> = {};
+    for (const m of state.messages) {
+      const k = `${m.origin}:${m.requestId}`;
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    return counts;
+  });
 
   // Track open swipeable rows so we can close any previously-open one when
   // a new row is swiped open.
@@ -153,6 +166,14 @@ export default function ConnectionsScreen() {
                         {session.origin}
                       </Text>
                     ) : null}
+                    <Text style={styles.metaLine}>
+                      {(messageCountsByKey[`${session.origin}:${session.id}`] ?? 0)} message
+                      {(messageCountsByKey[`${session.origin}:${session.id}`] ?? 0) === 1
+                        ? ''
+                        : 's'}
+                      {' · last active '}
+                      {formatLastActive(session.lastActivity)}
+                    </Text>
                     <Text style={styles.status}>Active</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={24} color="#CBD5E1" />
@@ -233,6 +254,14 @@ export default function ConnectionsScreen() {
   );
 }
 
+function formatLastActive(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'just now';
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  return `${Math.floor(diff / 86400_000)}d ago`;
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -290,6 +319,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#10B981',
     fontWeight: '600',
+  },
+  metaLine: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginBottom: 4,
   },
   emptyText: {
     textAlign: 'center',

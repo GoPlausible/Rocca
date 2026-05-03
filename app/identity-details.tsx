@@ -15,11 +15,13 @@ import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { DidDocumentView } from '@/components/DidDocumentView';
+import { PrimaryBadge } from '@/components/PrimaryBadge';
 import { labelsStore } from '@/stores/labels';
+import { isPrimaryIdentity } from '@/lib/primary-key';
 
 export default function IdentityDetailsScreen() {
   const { did } = useLocalSearchParams<{ did?: string }>();
-  const { identities } = useProvider();
+  const { identities, keys } = useProvider();
   const labels = useStore(labelsStore, (s) => s.byKey);
 
   const identity = identities.find(
@@ -69,31 +71,23 @@ export default function IdentityDetailsScreen() {
                 )}
               </View>
               {label?.name ? (
-                <>
-                  <Text style={styles.heroName} numberOfLines={1}>
-                    {label.name}
-                  </Text>
-                  <Text style={styles.heroLabel}>{identity.type || 'identity'}</Text>
-                  <Text
-                    style={styles.heroValue}
-                    numberOfLines={1}
-                    ellipsizeMode="middle"
-                  >
-                    {identity.did || identity.address}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.heroLabel}>{identity.type || 'identity'}</Text>
-                  <Text
-                    style={styles.heroValue}
-                    numberOfLines={1}
-                    ellipsizeMode="middle"
-                  >
-                    {identity.did || identity.address}
-                  </Text>
-                </>
-              )}
+                <Text style={styles.heroName} numberOfLines={1}>
+                  {label.name}
+                </Text>
+              ) : null}
+              {isPrimaryIdentity(identity, keys as any) ? (
+                <View style={{ marginBottom: 6 }}>
+                  <PrimaryBadge variant="hero" />
+                </View>
+              ) : null}
+              <Text style={styles.heroLabel}>{identity.type || 'identity'}</Text>
+              <Text
+                style={styles.heroValue}
+                numberOfLines={1}
+                ellipsizeMode="middle"
+              >
+                {identity.did || identity.address}
+              </Text>
             </View>
 
             {identity.did ? (

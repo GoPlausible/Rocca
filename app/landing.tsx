@@ -13,14 +13,15 @@ import { useStore } from '@tanstack/react-store';
 import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { EmojiPickerModal } from '@/components/EmojiPickerModal';
 import { WelcomeModal } from '@/components/WelcomeModal';
 import { useProvider } from '@/hooks/useProvider';
 import {
   preferencesStore,
-  setUserAvatarEmoji,
   toggleBalanceHidden,
 } from '@/stores/preferences';
+import { activityStore, type ActivityEntry } from '@/stores/activity';
+import { vcsStore } from '@/stores/vcs';
+import { signaturesStore } from '@/stores/signatures';
 
 // Extract provider configuration from expo-constants
 const config = Constants.expoConfig?.extra?.provider || {
@@ -37,11 +38,15 @@ const config = Constants.expoConfig?.extra?.provider || {
 
 export default function LandingScreen() {
   const router = useRouter();
-  const { key, identity, account, identities, accounts, passkey, passkeys, sessions } =
-    useProvider();
-  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const { identities, accounts, passkeys, sessions } = useProvider();
   const userAvatarEmoji = useStore(preferencesStore, (s) => s.userAvatarEmoji);
   const balanceHidden = useStore(preferencesStore, (s) => s.balanceHidden);
+  const vcEntries = useStore(vcsStore, (s) => s.entries);
+  const signatureEntries = useStore(signaturesStore, (s) => s.entries);
+  const recentActivity = useStore(
+    activityStore,
+    (s) => s.entries.slice(-5).reverse() as ActivityEntry[],
+  );
 
   const activeIdentity = identities[0];
   const activeAccount = accounts[0];
@@ -59,12 +64,17 @@ export default function LandingScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#F8FAFC' }]}>
-      <Stack.Screen options={{ title: 'Rocca' }} />
+      {/* Hide the navigation header on the landing page. The "Rocca" title
+          was just decorative, ate vertical space, and during transitions
+          briefly rendered as a centered overlay before settling — bad UX
+          on cold start. Landing is the post-unlock root with no back nav,
+          so a header gives nothing back. */}
+      <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <TouchableOpacity
             style={[styles.avatarButton, { borderColor: primaryColor }]}
-            onPress={() => setAvatarPickerOpen(true)}
+            onPress={() => router.push('/profile')}
             activeOpacity={0.8}
           >
             {userAvatarEmoji ? (
@@ -214,6 +224,28 @@ export default function LandingScreen() {
                   <Text style={styles.serviceSubLabel}>{sessions.length} Total</Text>
                 </TouchableOpacity>
               )}
+              <TouchableOpacity
+                style={styles.serviceItem}
+                onPress={() => router.push('/vcs')}
+              >
+                <View style={[styles.serviceIcon, { backgroundColor: '#FEF3C7' }]}>
+                  <MaterialIcons name="verified-user" size={28} color="#D97706" />
+                </View>
+                <Text style={styles.serviceLabel}>Credentials</Text>
+                <Text style={styles.serviceSubLabel}>{vcEntries.length} Total</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.serviceItem}
+                onPress={() => router.push('/signatures')}
+              >
+                <View style={[styles.serviceIcon, { backgroundColor: '#EDE9FE' }]}>
+                  <MaterialIcons name="draw" size={28} color="#7C3AED" />
+                </View>
+                <Text style={styles.serviceLabel}>Signatures</Text>
+                <Text style={styles.serviceSubLabel}>
+                  {signatureEntries.length} Total
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -223,44 +255,150 @@ export default function LandingScreen() {
             <Text style={styles.sectionTitle}>Recent Activity</Text>
           </View>
           <View style={styles.activityCard}>
-            <View style={styles.activityItem}>
-              <View style={[styles.activityIcon, { backgroundColor: '#F1F5F9' }]}>
-                <MaterialIcons name="history" size={20} color="#64748B" />
+            {recentActivity.length === 0 ? (
+              <View style={styles.activityItem}>
+                <View style={[styles.activityIcon, { backgroundColor: '#F1F5F9' }]}>
+                  <MaterialIcons name="history" size={20} color="#64748B" />
+                </View>
+                <View style={styles.activityDetails}>
+                  <Text style={styles.activityTitle}>No activity yet</Text>
+                  <Text style={styles.activityTime}>
+                    Things you do show up here.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.activityDetails}>
-                <Text style={styles.activityTitle}>Onboarding Reward</Text>
-                <Text style={styles.activityTime}>Just now</Text>
-              </View>
-              <Text style={[styles.activityAmount, { color: accentColor }]}>+50 pts</Text>
-            </View>
+            ) : (
+              recentActivity.map((entry) => {
+                const visual = activityVisualFor(entry.kind);
+                const subtitle = resolveActivitySubtitle(entry, sessions);
+                return (
+                  <View key={entry.id} style={styles.activityItem}>
+                    <View
+                      style={[
+                        styles.activityIcon,
+                        { backgroundColor: visual.bg },
+                      ]}
+                    >
+                      <MaterialIcons
+                        name={visual.icon}
+                        size={20}
+                        color={visual.color}
+                      />
+                    </View>
+                    <View style={styles.activityDetails}>
+                      <Text style={styles.activityTitle} numberOfLines={1}>
+                        {entry.title}
+                      </Text>
+                      <Text style={styles.activityTime} numberOfLines={1}>
+                        {subtitle ?? formatRelative(entry.ts)}
+                      </Text>
+                    </View>
+                    <Text style={styles.activityTime}>
+                      {formatRelative(entry.ts)}
+                    </Text>
+                  </View>
+                );
+              })
+            )}
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.resetButton}
-          onPress={async () => {
-            await key.store.clear();
-            await account.store.clear();
-            await identity.store.clear();
-            await passkey.store.clear();
-            router.replace('/onboarding');
-          }}
-        >
-          <Text style={styles.resetButtonText}>Logout & Reset Onboarding</Text>
-        </TouchableOpacity>
       </ScrollView>
-
-      <EmojiPickerModal
-        visible={avatarPickerOpen}
-        initial={userAvatarEmoji}
-        title="Pick your avatar"
-        onClose={() => setAvatarPickerOpen(false)}
-        onSelect={(emoji) => setUserAvatarEmoji(emoji)}
-      />
 
       <WelcomeModal />
     </SafeAreaView>
   );
+}
+
+type ActivityKind = ActivityEntry['kind'];
+
+interface ActivityVisual {
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  color: string;
+  bg: string;
+}
+
+function activityVisualFor(kind: ActivityKind): ActivityVisual {
+  switch (kind) {
+    case 'app.unlocked':
+      return { icon: 'lock-open', color: '#10B981', bg: '#ECFDF5' };
+    case 'app.reset':
+      return { icon: 'restart-alt', color: '#EF4444', bg: '#FEF2F2' };
+    case 'account.added':
+    case 'account.removed':
+      return { icon: 'account-balance-wallet', color: '#3B82F6', bg: '#E1EFFF' };
+    case 'identity.added':
+    case 'identity.removed':
+      return { icon: 'person', color: '#EF4444', bg: '#FDF2F2' };
+    case 'passkey.added':
+    case 'passkey.removed':
+      return { icon: 'fingerprint', color: '#10B981', bg: '#ECFDF5' };
+    case 'connection.paired':
+    case 'connection.connected':
+      return { icon: 'link', color: '#10B981', bg: '#ECFDF5' };
+    case 'connection.disconnected':
+    case 'connection.removed':
+      return { icon: 'link-off', color: '#EF4444', bg: '#FEF2F2' };
+    case 'signing.received':
+      return { icon: 'edit', color: '#3B82F6', bg: '#E1EFFF' };
+    case 'signing.approved':
+      return { icon: 'check-circle', color: '#10B981', bg: '#ECFDF5' };
+    case 'signing.rejected':
+      return { icon: 'cancel', color: '#EF4444', bg: '#FEF2F2' };
+    case 'vc.issued':
+      return { icon: 'verified-user', color: '#D97706', bg: '#FEF3C7' };
+    case 'vc.removed':
+      return { icon: 'verified-user', color: '#94A3B8', bg: '#F1F5F9' };
+    default:
+      return { icon: 'history', color: '#64748B', bg: '#F1F5F9' };
+  }
+}
+
+function formatRelative(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'Just now';
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+interface SessionLite {
+  id: string;
+  origin: string;
+  name?: string;
+}
+
+/**
+ * Pick the most informative subtitle for an activity entry. For
+ * connection-related events (the `connection.*` family), prefer the
+ * user's custom name on the matching session if it exists; fall back to
+ * the raw origin URL stored at write time. For non-connection entries,
+ * pass through the entry's own subtitle unchanged.
+ *
+ * Resolved at render so a later session-rename retroactively updates how
+ * old entries display — names aren't frozen into the activity log.
+ */
+function resolveActivitySubtitle(
+  entry: ActivityEntry,
+  sessions: ReadonlyArray<SessionLite>,
+): string | undefined {
+  if (!entry.kind.startsWith('connection.')) {
+    return entry.subtitle;
+  }
+  const origin =
+    typeof entry.meta?.origin === 'string'
+      ? entry.meta.origin
+      : entry.subtitle ?? '';
+  const requestId =
+    typeof entry.meta?.requestId === 'string' ? entry.meta.requestId : null;
+  if (origin && requestId) {
+    const matched = sessions.find(
+      (s) => s.origin === origin && s.id === requestId,
+    );
+    const name = matched?.name?.trim();
+    if (name) return name;
+  }
+  return entry.subtitle ?? origin;
 }
 
 const styles = StyleSheet.create({
@@ -458,18 +596,5 @@ const styles = StyleSheet.create({
   activityAmount: {
     fontSize: 14,
     fontWeight: '700',
-  },
-  resetButton: {
-    marginTop: 8,
-    padding: 16,
-    alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    marginVertical: 4,
-  },
-  resetButtonText: {
-    color: '#64748B',
-    fontSize: 14,
-    fontWeight: '500',
   },
 });

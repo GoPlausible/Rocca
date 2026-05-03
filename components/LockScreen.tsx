@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { requireBiometric, hasBiometricCapability } from '@/lib/biometric';
+import { appendActivity } from '@/stores/activity';
 
 interface Props {
   onUnlock: () => void;
@@ -23,8 +24,14 @@ export function LockScreen({ onUnlock }: Props) {
     setError(null);
     try {
       const ok = await requireBiometric('Unlock Rocca');
-      if (ok) onUnlock();
-      else setError('Authentication failed. Tap to try again.');
+      if (ok) {
+        appendActivity({
+          kind: 'app.unlocked',
+          title: 'Signed in',
+          subtitle: 'Biometric unlock',
+        });
+        onUnlock();
+      } else setError('Authentication failed. Tap to try again.');
     } finally {
       setBusy(false);
     }

@@ -28,9 +28,9 @@ const ac2Versions = (Constants.expoConfig?.extra?.ac2 as AC2Versions | undefined
 const AC2_SDK_VERSION = ac2Versions.sdkVersion ?? '';
 const AC2_PLUGIN_VERSION = ac2Versions.pluginVersion ?? '';
 
-// Module-level flag — flipped true after the modal first shows in this
-// process. Re-mounts of LandingScreen (e.g. navigating back from chat)
-// don't re-trigger it; only a fresh cold start does.
+// Module-level flag — flipped true after the welcome modal first shows
+// in this process. Re-mounts of LandingScreen (e.g. navigating back
+// from chat) don't re-trigger it; only a fresh cold start does.
 let shownThisSession = false;
 
 const ENHANCEMENTS = [
@@ -45,6 +45,61 @@ const ENHANCEMENTS = [
   'Add Verifiable Credentials',
   'Add DIDCOM messaging over WebRTC',
 ];
+
+/**
+ * Shared body for the welcome / about dialog. Owned by both
+ * `<WelcomeModal>` (auto-show on first cold start) and `<AboutModal>`
+ * (manually triggered from Profile). Keeps the two surfaces in lockstep
+ * — change the bullets here once, both consumers update.
+ */
+export function WelcomeContent(): React.JSX.Element {
+  return (
+    <>
+      <View style={styles.header}>
+        <View style={styles.logoBubble}>
+          <MaterialIcons name="waving-hand" size={26} color="#3B82F6" />
+        </View>
+        <Text style={styles.title}>Rocca Wallet</Text>
+        {ROCCA_VERSION ? (
+          <View style={styles.versionPill}>
+            <Text style={styles.versionPillText}>v{ROCCA_VERSION}</Text>
+          </View>
+        ) : null}
+        {AC2_SDK_VERSION || AC2_PLUGIN_VERSION ? (
+          <Text style={styles.targetVersions}>
+            {AC2_SDK_VERSION ? `ac2-sdk ${AC2_SDK_VERSION}` : ''}
+            {AC2_SDK_VERSION && AC2_PLUGIN_VERSION ? ' · ' : ''}
+            {AC2_PLUGIN_VERSION ? `ac2-plugin ${AC2_PLUGIN_VERSION}` : ''}
+          </Text>
+        ) : null}
+        <Text style={styles.subtitle}>
+          by Algorand Foundation, enhanced by GoPlausible.
+        </Text>
+      </View>
+
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.bodyIntro}>
+          This fork of Rocca by GoPlausible differs from the original by:
+        </Text>
+        {ENHANCEMENTS.map((line) => (
+          <View key={line} style={styles.bullet}>
+            <MaterialIcons
+              name="check-circle"
+              size={16}
+              color="#10B981"
+              style={styles.bulletIcon}
+            />
+            <Text style={styles.bulletText}>{line}</Text>
+          </View>
+        ))}
+      </ScrollView>
+    </>
+  );
+}
 
 export function WelcomeModal(): React.JSX.Element | null {
   const [visible, setVisible] = useState(false);
@@ -67,55 +122,44 @@ export function WelcomeModal(): React.JSX.Element | null {
     >
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <View style={styles.header}>
-            <View style={styles.logoBubble}>
-              <MaterialIcons name="waving-hand" size={26} color="#3B82F6" />
-            </View>
-            <Text style={styles.title}>Rocca Wallet</Text>
-            {ROCCA_VERSION ? (
-              <View style={styles.versionPill}>
-                <Text style={styles.versionPillText}>v{ROCCA_VERSION}</Text>
-              </View>
-            ) : null}
-            {AC2_SDK_VERSION || AC2_PLUGIN_VERSION ? (
-              <Text style={styles.targetVersions}>
-                {AC2_SDK_VERSION ? `ac2-sdk ${AC2_SDK_VERSION}` : ''}
-                {AC2_SDK_VERSION && AC2_PLUGIN_VERSION ? ' · ' : ''}
-                {AC2_PLUGIN_VERSION ? `ac2-plugin ${AC2_PLUGIN_VERSION}` : ''}
-              </Text>
-            ) : null}
-            <Text style={styles.subtitle}>
-              by Algorand Foundation, enhanced by GoPlausible.
-            </Text>
-          </View>
-
-          <ScrollView
-            style={styles.body}
-            contentContainerStyle={styles.bodyContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.bodyIntro}>
-              This fork of Rocca by GoPlausible differs from the original by:
-            </Text>
-            {ENHANCEMENTS.map((line) => (
-              <View key={line} style={styles.bullet}>
-                <MaterialIcons
-                  name="check-circle"
-                  size={16}
-                  color="#10B981"
-                  style={styles.bulletIcon}
-                />
-                <Text style={styles.bulletText}>{line}</Text>
-              </View>
-            ))}
-          </ScrollView>
-
+          <WelcomeContent />
           <TouchableOpacity
             style={styles.cta}
             activeOpacity={0.85}
             onPress={() => setVisible(false)}
           >
             <Text style={styles.ctaText}>Continue</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * Same content as `<WelcomeModal>` but controlled — opens on demand
+ * from the Profile screen's "About" button. Doesn't touch the
+ * `shownThisSession` flag, so opening About won't suppress the welcome
+ * dialog on the next cold start.
+ */
+export interface AboutModalProps {
+  visible: boolean;
+  onClose: () => void;
+}
+
+export function AboutModal({ visible, onClose }: AboutModalProps): React.JSX.Element {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.backdrop}>
+        <View style={styles.card}>
+          <WelcomeContent />
+          <TouchableOpacity style={styles.cta} activeOpacity={0.85} onPress={onClose}>
+            <Text style={styles.ctaText}>Close</Text>
           </TouchableOpacity>
         </View>
       </View>

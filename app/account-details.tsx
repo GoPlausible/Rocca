@@ -8,7 +8,9 @@ import { encodeAddress } from '@algorandfoundation/keystore';
 import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
+import { PrimaryBadge } from '@/components/PrimaryBadge';
 import { labelsStore } from '@/stores/labels';
+import { isPrimaryAccount } from '@/lib/primary-key';
 
 export default function AccountDetailsScreen() {
   const router = useRouter();
@@ -58,6 +60,11 @@ export default function AccountDetailsScreen() {
                 <Text style={styles.heroName} numberOfLines={1}>
                   {label.name}
                 </Text>
+              ) : null}
+              {isPrimaryAccount(account, keys as any) ? (
+                <View style={{ marginBottom: 8 }}>
+                  <PrimaryBadge variant="hero" />
+                </View>
               ) : null}
               <Text style={styles.heroLabel}>Balance</Text>
               <Text style={styles.heroValue}>${balance}</Text>

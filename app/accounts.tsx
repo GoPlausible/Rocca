@@ -15,7 +15,9 @@ import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { EditLabelModal } from '@/components/EditLabelModal';
+import { PrimaryBadge } from '@/components/PrimaryBadge';
 import { labelsStore, setLabel } from '@/stores/labels';
+import { isPrimaryAccount } from '@/lib/primary-key';
 
 interface AccountLike {
   address: string;
@@ -25,7 +27,7 @@ interface AccountLike {
 
 export default function AccountsScreen() {
   const router = useRouter();
-  const { accounts, account: accountApi } = useProvider();
+  const { accounts, account: accountApi, keys } = useProvider();
   const labels = useStore(labelsStore, (s) => s.byKey);
 
   const openRowRef = useRef<Swipeable | null>(null);
@@ -149,9 +151,18 @@ export default function AccountsScreen() {
                       )}
                     </View>
                     <View style={styles.details}>
-                      <Text style={styles.address} numberOfLines={1} ellipsizeMode="middle">
-                        {lbl?.name ?? account.address}
-                      </Text>
+                      <View style={styles.titleRow}>
+                        <Text
+                          style={[styles.address, { flex: 1 }]}
+                          numberOfLines={1}
+                          ellipsizeMode="middle"
+                        >
+                          {lbl?.name ?? account.address}
+                        </Text>
+                        {isPrimaryAccount(account, keys as any) ? (
+                          <PrimaryBadge variant="compact" />
+                        ) : null}
+                      </View>
                       {lbl?.name ? (
                         <Text style={styles.subAddress} numberOfLines={1} ellipsizeMode="middle">
                           {account.address}
@@ -240,6 +251,12 @@ const styles = StyleSheet.create({
   },
   details: {
     flex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
   address: {
     fontSize: 16,

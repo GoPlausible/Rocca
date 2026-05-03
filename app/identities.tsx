@@ -15,7 +15,9 @@ import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { EditLabelModal } from '@/components/EditLabelModal';
+import { PrimaryBadge } from '@/components/PrimaryBadge';
 import { labelsStore, setLabel } from '@/stores/labels';
+import { isPrimaryIdentity } from '@/lib/primary-key';
 
 interface IdentityLike {
   address: string;
@@ -26,7 +28,7 @@ interface IdentityLike {
 
 export default function IdentitiesScreen() {
   const router = useRouter();
-  const { identities, identity: identityApi } = useProvider();
+  const { identities, identity: identityApi, keys } = useProvider();
   const labels = useStore(labelsStore, (s) => s.byKey);
 
   const openRowRef = useRef<Swipeable | null>(null);
@@ -141,9 +143,18 @@ export default function IdentitiesScreen() {
                       )}
                     </View>
                     <View style={styles.details}>
-                      <Text style={styles.did} numberOfLines={1} ellipsizeMode="middle">
-                        {lbl?.name ?? identity.did ?? identity.address}
-                      </Text>
+                      <View style={styles.titleRow}>
+                        <Text
+                          style={[styles.did, { flex: 1 }]}
+                          numberOfLines={1}
+                          ellipsizeMode="middle"
+                        >
+                          {lbl?.name ?? identity.did ?? identity.address}
+                        </Text>
+                        {isPrimaryIdentity(identity, keys as any) ? (
+                          <PrimaryBadge variant="compact" />
+                        ) : null}
+                      </View>
                       {lbl?.name ? (
                         <Text style={styles.subDid} numberOfLines={1} ellipsizeMode="middle">
                           {identity.did ?? identity.address}
@@ -234,6 +245,11 @@ const styles = StyleSheet.create({
   },
   details: {
     flex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   did: {
     fontSize: 16,
