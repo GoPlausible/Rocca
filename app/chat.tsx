@@ -9,6 +9,8 @@ import {
   Platform,
   ActivityIndicator,
   BackHandler,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import Animated, {
   useAnimatedKeyboard,
@@ -99,6 +101,35 @@ export default function ChatScreen() {
   }));
 
   const flatListRef = useRef<FlatList>(null);
+
+  // Auto-follow only when the user is already near the bottom. Without this
+  // gate, every row remeasure / keyboard-frame shift / long-message wrap
+  // would call scrollToEnd and yank the user back from the history they
+  // were trying to read. 80px slack covers the small jitter from row
+  // height settling without losing follow on tiny scroll-up gestures.
+  const isNearBottomRef = useRef(true);
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    isNearBottomRef.current = distanceFromBottom < 80;
+  };
+  const followIfAtBottom = (animated: boolean) => {
+    if (isNearBottomRef.current) {
+      flatListRef.current?.scrollToEnd({ animated });
+    }
+  };
+
+  // First render: snap to bottom regardless of the gate. Subsequent
+  // length changes are followed only when the user is still at the
+  // bottom (handled by the contentSize callback).
+  const didInitialScrollRef = useRef(false);
+  useEffect(() => {
+    if (!didInitialScrollRef.current && messages.length > 0) {
+      didInitialScrollRef.current = true;
+      flatListRef.current?.scrollToEnd({ animated: false });
+    }
+  }, [messages.length]);
 
   const [isHeartbeatVisible, setIsHeartbeatVisible] = useState(false);
 
@@ -230,8 +261,9 @@ export default function ChatScreen() {
                 contentContainerStyle={styles.messageList}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
-                onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-                onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+                onContentSizeChange={() => followIfAtBottom(true)}
               />
 
               {/* Transient banner for warn/info notices. Errors don't

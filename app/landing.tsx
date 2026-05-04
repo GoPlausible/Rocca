@@ -87,11 +87,24 @@ export default function LandingScreen() {
             <Text style={styles.welcomeText} numberOfLines={1}>
               Your identity
             </Text>
-            <Text style={styles.userName} numberOfLines={1}>
-              {activeAccount
-                ? `${activeAccount.address.slice(0, 8)}...${activeAccount.address.replace('=', '').slice(-8)}`
-                : `${name} Wallet`}
-            </Text>
+            <View style={styles.userNameLine}>
+              <Text style={styles.userName} numberOfLines={1}>
+                {activeAccount
+                  ? `${activeAccount.address.slice(0, 8)}...${activeAccount.address.replace('=', '').slice(-8)}`
+                  : `${name} Wallet`}
+              </Text>
+              {activeAccount ? (
+                <TouchableOpacity
+                  hitSlop={10}
+                  onPress={async () => {
+                    await Clipboard.setStringAsync(activeAccount.address);
+                    Alert.alert('Copied', 'Public key copied to clipboard.');
+                  }}
+                >
+                  <MaterialIcons name="content-copy" size={14} color="#64748B" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
             {activeIdentity?.did ? (
               <View style={styles.didLine}>
                 <Text
@@ -436,6 +449,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: '#0F172A',
+    flexShrink: 1,
+  },
+  userNameLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   profileButton: {
     width: 44,
