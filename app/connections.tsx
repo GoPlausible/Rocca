@@ -305,6 +305,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    overflow: 'hidden',
   },
   details: {
     flex: 1,
@@ -382,6 +383,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#BFDBFE',
+    overflow: 'hidden',
   },
   avatarPickerEmoji: {
     fontSize: 32,

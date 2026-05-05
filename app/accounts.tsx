@@ -16,6 +16,7 @@ import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { EditLabelModal } from '@/components/EditLabelModal';
 import { PrimaryBadge } from '@/components/PrimaryBadge';
+import { LabelAvatar } from '@/components/LabelAvatar';
 import { labelsStore, setLabel } from '@/stores/labels';
 import { isPrimaryAccount } from '@/lib/primary-key';
 
@@ -142,7 +143,7 @@ export default function AccountsScreen() {
                   >
                     <View style={styles.iconContainer}>
                       {lbl?.avatar ? (
-                        <Text style={styles.iconEmoji}>{lbl.avatar}</Text>
+                        <LabelAvatar avatar={lbl.avatar} emojiSize={24} />
                       ) : (
                         <MaterialIcons
                           name="account-balance-wallet"
@@ -187,6 +188,7 @@ export default function AccountsScreen() {
         initialName={editTarget ? labelFor(editTarget.address)?.name ?? '' : ''}
         initialAvatar={editTarget ? labelFor(editTarget.address)?.avatar ?? null : null}
         avatarPickerTitle="Pick account avatar"
+        allowImageAvatar
         onSave={({ name, avatar }) => {
           if (editTarget) setLabel('accounts', editTarget.address, { name, avatar: avatar ?? undefined });
           setEditTarget(null);
@@ -244,6 +246,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    overflow: 'hidden',
   },
   iconEmoji: {
     fontSize: 24,

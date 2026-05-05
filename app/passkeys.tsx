@@ -15,6 +15,7 @@ import { useStore } from '@tanstack/react-store';
 import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { EditLabelModal } from '@/components/EditLabelModal';
+import { LabelAvatar } from '@/components/LabelAvatar';
 import { labelsStore, setLabel } from '@/stores/labels';
 
 interface PasskeyLike {
@@ -131,7 +132,7 @@ export default function PasskeysScreen() {
                   >
                     <View style={styles.iconContainer}>
                       {lbl?.avatar ? (
-                        <Text style={styles.iconEmoji}>{lbl.avatar}</Text>
+                        <LabelAvatar avatar={lbl.avatar} emojiSize={24} />
                       ) : (
                         <MaterialIcons name="fingerprint" size={24} color="#10B981" />
                       )}
@@ -229,6 +230,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    overflow: 'hidden',
   },
   iconEmoji: {
     fontSize: 24,

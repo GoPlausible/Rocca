@@ -12,6 +12,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useStore } from '@tanstack/react-store';
 import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
 import { WelcomeModal } from '@/components/WelcomeModal';
 import { useProvider } from '@/hooks/useProvider';
@@ -40,6 +41,7 @@ export default function LandingScreen() {
   const router = useRouter();
   const { identities, accounts, passkeys, sessions } = useProvider();
   const userAvatarEmoji = useStore(preferencesStore, (s) => s.userAvatarEmoji);
+  const userAvatarUri = useStore(preferencesStore, (s) => s.userAvatarUri);
   const balanceHidden = useStore(preferencesStore, (s) => s.balanceHidden);
   const vcEntries = useStore(vcsStore, (s) => s.entries);
   const signatureEntries = useStore(signaturesStore, (s) => s.entries);
@@ -77,7 +79,13 @@ export default function LandingScreen() {
             onPress={() => router.push('/profile')}
             activeOpacity={0.8}
           >
-            {userAvatarEmoji ? (
+            {userAvatarUri ? (
+              <Image
+                source={{ uri: userAvatarUri }}
+                style={styles.avatarImage}
+                contentFit="cover"
+              />
+            ) : userAvatarEmoji ? (
               <Text style={styles.avatarEmoji}>{userAvatarEmoji}</Text>
             ) : (
               <MaterialIcons name="account-circle" size={36} color={primaryColor} />
@@ -485,6 +493,11 @@ const styles = StyleSheet.create({
   },
   avatarEmoji: {
     fontSize: 28,
+  },
+  avatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
   },
   balanceCard: {
     borderRadius: 24,

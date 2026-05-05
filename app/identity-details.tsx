@@ -16,6 +16,7 @@ import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { DidDocumentView } from '@/components/DidDocumentView';
 import { PrimaryBadge } from '@/components/PrimaryBadge';
+import { LabelAvatar } from '@/components/LabelAvatar';
 import { labelsStore } from '@/stores/labels';
 import { isPrimaryIdentity } from '@/lib/primary-key';
 
@@ -65,7 +66,7 @@ export default function IdentityDetailsScreen() {
             <View style={styles.heroCard}>
               <View style={styles.heroIcon}>
                 {label?.avatar ? (
-                  <Text style={styles.heroAvatarEmoji}>{label.avatar}</Text>
+                  <LabelAvatar avatar={label.avatar} emojiSize={28} />
                 ) : (
                   <MaterialIcons name="person" size={28} color="#FFFFFF" />
                 )}
@@ -216,11 +217,12 @@ const styles = StyleSheet.create({
   heroIcon: {
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 24,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+    overflow: 'hidden',
   },
   heroLabel: {
     color: 'rgba(255,255,255,0.85)',

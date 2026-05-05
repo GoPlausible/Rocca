@@ -16,6 +16,7 @@ import { useProvider } from '@/hooks/useProvider';
 import { BackChip } from '@/components/BackChip';
 import { EditLabelModal } from '@/components/EditLabelModal';
 import { PrimaryBadge } from '@/components/PrimaryBadge';
+import { LabelAvatar } from '@/components/LabelAvatar';
 import { labelsStore, setLabel } from '@/stores/labels';
 import { isPrimaryIdentity } from '@/lib/primary-key';
 
@@ -138,7 +139,7 @@ export default function IdentitiesScreen() {
                   >
                     <View style={styles.iconContainer}>
                       {lbl?.avatar ? (
-                        <Text style={styles.iconEmoji}>{lbl.avatar}</Text>
+                        <LabelAvatar avatar={lbl.avatar} emojiSize={24} />
                       ) : (
                         <MaterialIcons name="person" size={24} color="#EF4444" />
                       )}
@@ -181,6 +182,7 @@ export default function IdentitiesScreen() {
         initialName={editTarget ? labelFor(editTarget)?.name ?? '' : ''}
         initialAvatar={editTarget ? labelFor(editTarget)?.avatar ?? null : null}
         avatarPickerTitle="Pick identity avatar"
+        allowImageAvatar
         onSave={({ name, avatar }) => {
           if (editTarget) {
             setLabel('identities', labelKeyOf(editTarget), {
@@ -238,6 +240,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    overflow: 'hidden',
   },
   iconEmoji: {
     fontSize: 24,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "rocca",
     "slug": "rocca",
-    "version": "1.0.15",
+    "version": "1.0.35",
     "orientation": "portrait",
     "scheme": "rocca",
     "userInterfaceStyle": "automatic",
@@ -49,7 +49,8 @@
         "expo-build-properties",
         {
           "android": {
-            "compileSdkVersion": 35
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
           }
         }
       ],
@@ -59,6 +60,13 @@
         {
           "site": "https://fido.shore-tech.net",
           "label": "Rocca Wallet"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Rocca to access your photos so you can pick a profile avatar.",
+          "cameraPermission": "Allow Rocca to use the camera so you can capture a profile avatar."
         }
       ]
     ],

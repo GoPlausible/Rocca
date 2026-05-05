@@ -4,6 +4,12 @@ import { createMMKV } from 'react-native-mmkv';
 export interface PreferencesState {
   /** Emoji shown in landing header in place of the original R logo. */
   userAvatarEmoji: string | null;
+  /**
+   * Image-based avatar — stored as a `data:image/...;base64,...` URI so the
+   * picture survives cache purges and app upgrades without juggling files.
+   * Setting one of (emoji | uri) clears the other; only one is active.
+   */
+  userAvatarUri: string | null;
   /** When true, the Total Balance hero card masks the amount. */
   balanceHidden: boolean;
 }
@@ -18,13 +24,14 @@ const loadInitial = (): PreferencesState => {
       const parsed = JSON.parse(raw) as Partial<PreferencesState>;
       return {
         userAvatarEmoji: typeof parsed.userAvatarEmoji === 'string' ? parsed.userAvatarEmoji : null,
+        userAvatarUri: typeof parsed.userAvatarUri === 'string' ? parsed.userAvatarUri : null,
         balanceHidden: parsed.balanceHidden === true,
       };
     }
   } catch (err) {
     console.error('Failed to load preferences:', err);
   }
-  return { userAvatarEmoji: null, balanceHidden: false };
+  return { userAvatarEmoji: null, userAvatarUri: null, balanceHidden: false };
 };
 
 export const preferencesStore = new Store<PreferencesState>(loadInitial());
@@ -38,7 +45,27 @@ preferencesStore.subscribe(() => {
 });
 
 export function setUserAvatarEmoji(emoji: string | null) {
-  preferencesStore.setState((s) => ({ ...s, userAvatarEmoji: emoji }));
+  preferencesStore.setState((s) => ({
+    ...s,
+    userAvatarEmoji: emoji,
+    userAvatarUri: emoji ? null : s.userAvatarUri,
+  }));
+}
+
+export function setUserAvatarUri(uri: string | null) {
+  preferencesStore.setState((s) => ({
+    ...s,
+    userAvatarUri: uri,
+    userAvatarEmoji: uri ? null : s.userAvatarEmoji,
+  }));
+}
+
+export function clearUserAvatar() {
+  preferencesStore.setState((s) => ({
+    ...s,
+    userAvatarEmoji: null,
+    userAvatarUri: null,
+  }));
 }
 
 export function toggleBalanceHidden() {

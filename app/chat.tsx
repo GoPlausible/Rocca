@@ -20,6 +20,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
 import { useStore } from '@tanstack/react-store';
 import { messagesStore, Message } from '@/stores/messages';
 import { useConnection } from '@/hooks/useConnection';
@@ -114,6 +116,13 @@ export default function ChatScreen() {
       contentSize.height - (contentOffset.y + layoutMeasurement.height);
     isNearBottomRef.current = distanceFromBottom < 80;
   };
+  // Dismiss the per-message action menu only on user-initiated scroll
+  // (drag). The programmatic auto-follow scrolls fired by
+  // `onContentSizeChange` after opening a menu on the last message would
+  // otherwise dismiss the menu instantly via onScroll.
+  const handleScrollBeginDrag = () => {
+    if (actionMenuId) setActionMenuId(null);
+  };
   const followIfAtBottom = (animated: boolean) => {
     if (isNearBottomRef.current) {
       flatListRef.current?.scrollToEnd({ animated });
@@ -130,6 +139,73 @@ export default function ChatScreen() {
       flatListRef.current?.scrollToEnd({ animated: false });
     }
   }, [messages.length]);
+
+  // Per-message long-press shows a small action row (copy / read / select)
+  // anchored to the bubble. Only one menu is open at a time. Tapping the
+  // backdrop or scrolling dismisses it. Selection mode is independent —
+  // long-press never auto-selects so the user can copy/read without
+  // entering selection mode.
+  const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const isSelectionMode = selectedIds.size > 0;
+
+  const closeActionMenu = () => setActionMenuId(null);
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const copyText = async (text: string) => {
+    await Clipboard.setStringAsync(text);
+    closeActionMenu();
+  };
+  const readText = (text: string) => {
+    Speech.stop();
+    Speech.speak(text);
+    closeActionMenu();
+  };
+  const toggleSelect = (id: string) => {
+    setSelectedIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    closeActionMenu();
+  };
+  const copyAllSelected = async () => {
+    const text = messages
+      .filter((m) => selectedIds.has(m.id))
+      .map((m) => m.text)
+      .join('\n\n');
+    if (!text) return;
+    await Clipboard.setStringAsync(text);
+    clearSelection();
+  };
+  const readAllSelected = () => {
+    Speech.stop();
+    const text = messages
+      .filter((m) => selectedIds.has(m.id))
+      .map((m) => m.text)
+      .join('. ');
+    if (!text) return;
+    Speech.speak(text);
+  };
+
+  // Stop any in-flight TTS when the screen unmounts or hot-reloads — leaving
+  // the speech engine running across navigations would talk over a fresh
+  // chat.
+  useEffect(() => () => {
+    Speech.stop();
+  }, []);
+
+  // Android hardware back: in selection mode, clear selection instead of
+  // popping the screen — matches the standard multi-select pattern.
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSelectedIds(new Set());
+      return true;
+    });
+    return () => sub.remove();
+  }, [selectedIds.size]);
 
   const [isHeartbeatVisible, setIsHeartbeatVisible] = useState(false);
 
@@ -161,25 +237,104 @@ export default function ChatScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: Message }) => (
-    <View
-      style={[styles.messageBubble, item.sender === 'me' ? styles.myMessage : styles.peerMessage]}
-    >
-      <MarkdownMessage variant={item.sender === 'me' ? 'mine' : 'peer'}>
-        {item.text}
-      </MarkdownMessage>
-      <Text style={[styles.timestamp, item.sender === 'me' && styles.myTimestamp]}>
-        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </Text>
-    </View>
-  );
+  const renderItem = ({ item, index }: { item: Message; index: number }) => {
+    const isMine = item.sender === 'me';
+    const isSelected = selectedIds.has(item.id);
+    const isMenuOpen = actionMenuId === item.id;
+    // The menu renders below by default. For the last message, render it
+    // above the bubble instead — otherwise it would be clipped by the input
+    // bar (FlatList paddingBottom is too tight to fit it underneath).
+    const isLast = index === messages.length - 1;
+    const menu = isMenuOpen ? (
+      <View
+        style={[
+          styles.actionMenu,
+          isLast ? styles.actionMenuAbove : styles.actionMenuBelow,
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => copyText(item.text)}
+          hitSlop={6}
+        >
+          <MaterialIcons name="content-copy" size={18} color="#0F172A" />
+          <Text style={styles.actionButtonText}>Copy</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => readText(item.text)}
+          hitSlop={6}
+        >
+          <MaterialIcons name="volume-up" size={18} color="#0F172A" />
+          <Text style={styles.actionButtonText}>Read</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => toggleSelect(item.id)}
+          hitSlop={6}
+        >
+          <MaterialIcons
+            name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+            size={18}
+            color="#0F172A"
+          />
+          <Text style={styles.actionButtonText}>Select</Text>
+        </TouchableOpacity>
+      </View>
+    ) : null;
+    return (
+      <View style={[styles.messageRow, isMine ? styles.rowRight : styles.rowLeft]}>
+        {isLast ? menu : null}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          delayLongPress={300}
+          onPress={
+            isSelectionMode ? () => toggleSelect(item.id) : closeActionMenu
+          }
+          onLongPress={() => setActionMenuId(item.id)}
+          style={[
+            styles.messageBubble,
+            isMine ? styles.myMessage : styles.peerMessage,
+            isSelected && (isMine ? styles.myMessageSelected : styles.peerMessageSelected),
+          ]}
+        >
+          <MarkdownMessage variant={isMine ? 'mine' : 'peer'}>
+            {item.text}
+          </MarkdownMessage>
+          <Text style={[styles.timestamp, isMine && styles.myTimestamp]}>
+            {new Date(item.timestamp).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Text>
+          {isSelected ? (
+            <View
+              style={[
+                styles.selectedTick,
+                isMine ? styles.selectedTickRight : styles.selectedTickLeft,
+              ]}
+            >
+              <MaterialIcons name="check-circle" size={18} color="#10B981" />
+            </View>
+          ) : null}
+        </TouchableOpacity>
+        {!isLast ? menu : null}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <Stack.Screen
         options={{
           headerTitle: () =>
-            viewMode === 'logs' ? (
+            isSelectionMode && viewMode === 'chat' ? (
+              <View style={styles.headerTitle}>
+                <Text style={styles.headerTitleText} numberOfLines={1}>
+                  {selectedIds.size} selected
+                </Text>
+              </View>
+            ) : viewMode === 'logs' ? (
               <View style={styles.headerTitle}>
                 <View style={styles.headerAvatar}>
                   <MaterialIcons name="receipt-long" size={18} color="#3B82F6" />
@@ -203,16 +358,42 @@ export default function ChatScreen() {
               </View>
             ),
           headerShown: true,
-          // In logs mode, BackChip flips back to the chat view in-place —
-          // does NOT pop the screen, so the connection stays alive.
+          // In selection mode, the back chip clears the selection instead of
+          // navigating away — matches the platform pattern for multi-select
+          // toolbars (Gmail, Photos). In logs mode, BackChip flips back to
+          // the chat view in-place — does NOT pop the screen, so the
+          // connection stays alive.
           headerLeft: () =>
-            viewMode === 'logs' ? (
+            isSelectionMode && viewMode === 'chat' ? (
+              <BackChip onPress={clearSelection} />
+            ) : viewMode === 'logs' ? (
               <BackChip onPress={() => setViewMode('chat')} />
             ) : (
               <BackChip />
             ),
           headerRight: () =>
-            viewMode === 'logs' ? null : (
+            isSelectionMode && viewMode === 'chat' ? (
+              <View style={styles.selectionToolbar}>
+                <TouchableOpacity
+                  style={styles.selectionToolbarButton}
+                  onPress={copyAllSelected}
+                  hitSlop={6}
+                  activeOpacity={0.75}
+                >
+                  <MaterialIcons name="content-copy" size={16} color="#0F172A" />
+                  <Text style={styles.selectionToolbarText}>Copy all</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.selectionToolbarButton}
+                  onPress={readAllSelected}
+                  hitSlop={6}
+                  activeOpacity={0.75}
+                >
+                  <MaterialIcons name="volume-up" size={16} color="#0F172A" />
+                  <Text style={styles.selectionToolbarText}>Read all</Text>
+                </TouchableOpacity>
+              </View>
+            ) : viewMode === 'logs' ? null : (
               <TouchableOpacity
                 style={styles.headerRightBadge}
                 onPress={openLogsView}
@@ -262,6 +443,7 @@ export default function ChatScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 onScroll={handleScroll}
+                onScrollBeginDrag={handleScrollBeginDrag}
                 scrollEventThrottle={16}
                 onContentSizeChange={() => followIfAtBottom(true)}
               />
@@ -643,12 +825,21 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     flexGrow: 1,
   },
+  messageRow: {
+    width: '100%',
+    marginBottom: 8,
+  },
+  rowLeft: {
+    alignItems: 'flex-start',
+  },
+  rowRight: {
+    alignItems: 'flex-end',
+  },
   messageBubble: {
     maxWidth: '85%',
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 18,
-    marginBottom: 8,
     elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -656,7 +847,6 @@ const styles = StyleSheet.create({
     shadowRadius: 1,
   },
   myMessage: {
-    alignSelf: 'flex-end',
     backgroundColor: '#3B82F6',
     borderBottomRightRadius: 4,
     borderTopRightRadius: 16,
@@ -664,12 +854,86 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 16,
   },
   peerMessage: {
-    alignSelf: 'flex-start',
     backgroundColor: '#E2E8F0',
     borderBottomLeftRadius: 4,
     borderTopRightRadius: 16,
     borderTopLeftRadius: 16,
     borderBottomRightRadius: 16,
+  },
+  myMessageSelected: {
+    borderWidth: 2,
+    borderColor: '#10B981',
+  },
+  peerMessageSelected: {
+    borderWidth: 2,
+    borderColor: '#10B981',
+  },
+  selectedTick: {
+    position: 'absolute',
+    top: -6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 9,
+  },
+  selectedTickLeft: {
+    left: -6,
+  },
+  selectedTickRight: {
+    right: -6,
+  },
+  actionMenu: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+  },
+  actionMenuBelow: {
+    marginTop: 6,
+  },
+  actionMenuAbove: {
+    marginBottom: 6,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  actionButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  selectionToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 12,
+  },
+  selectionToolbarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  selectionToolbarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: 0.2,
   },
   messageText: {
     fontSize: 16,
